@@ -4,7 +4,9 @@ import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:kyber/kyber.dart';
 import 'package:kyber_collection/kyber_collection.dart';
+import 'package:kyber_launcher/core/services/linux_self_update_service.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
+import 'package:kyber_launcher/features/kyber/services/kyber_grpc_service.dart';
 import 'package:kyber_launcher/gen/rust/api/archive.dart';
 import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/main.dart';
@@ -145,6 +147,19 @@ class ModuleVersionService {
       return false;
     }
 
+    // On Linux the launcher self-update goes through
+    // LinuxSelfUpdateService (download tarball, extract into
+    // ~/.local/share/kyber/launcher/versions/<X.Y.Z>/, sidecar swaps
+    // the `current` symlink on next start). We delegate the version
+    // check too, so we can ask the server for the linux-specific
+    // module instead of the win64 one.
+    if (Platform.isLinux && module == VersionModule.installer) {
+      return _isLinuxLauncherUpdateAvailable(
+        channel: channel,
+        service: service,
+      );
+    }
+
     if ((kDebugMode || kProfileMode) && module == VersionModule.installer) {
       return false;
     }
@@ -209,6 +224,20 @@ class ModuleVersionService {
     void Function(int, int)? onProgress,
   }) async {
     if (!kReleaseMode && module == VersionModule.installer) {
+      return;
+    }
+
+    // Linux launcher self-update: completely separate code path.
+    // module.name is hardcoded to `kyber-installer-win64`, so we'd
+    // otherwise be querying the Windows artifact stream. Hand off to
+    // LinuxSelfUpdateService which knows the linux module id and
+    // handles tarball download + staging + marker writing.
+    if (Platform.isLinux && module == VersionModule.installer) {
+      await _runLinuxLauncherUpdate(
+        channel: channel,
+        service: service,
+        onProgress: onProgress,
+      );
       return;
     }
 
@@ -317,5 +346,138 @@ class ModuleVersionService {
     } catch (e) {
       return null;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Linux launcher self-update.
+  // ---------------------------------------------------------------------------
+
+  /// Server publishes the Linux launcher tarball under a separate
+  /// module id (the Windows installer keeps `kyber-installer-win64`).
+  String get _linuxModuleId => linuxLauncherModule;
+
+  /// Resolve "the version currently installed on this machine".
+  ///
+  /// Three sources, in order of authority:
+  ///   1. `current` symlink target → versions/<X.Y.Z> (truth after any
+  ///      successful self-update).
+  ///   2. PackageInfo.version (the build-time string baked into
+  ///      flutter_assets/version.json — same source the Reference
+  ///      build relies on).
+  ///   3. null if neither is readable (then the dialog falls through
+  ///      to "no update available" so we don't trigger spurious
+  ///      prompts).
+  Future<String?> _linuxInstalledVersion() async {
+    final link = Link(LinuxSelfUpdateService.currentLink);
+    if (link.existsSync()) {
+      try {
+        final target = await link.target();
+        final base = target.split('/').last; // versions/<X.Y.Z> => X.Y.Z
+        if (base.isNotEmpty) return base;
+      } catch (_) {
+        // Fall through to PackageInfo.
+      }
+    }
+
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (info.version.isNotEmpty) return info.version;
+    } catch (_) {}
+    return null;
+  }
+
+  Future<bool> _isLinuxLauncherUpdateAvailable({
+    String? channel,
+    KyberGRPCService? service,
+  }) async {
+    // If we already staged an update last run, the user just needs to
+    // restart — re-show the dialog so they can confirm the apply.
+    if (LinuxSelfUpdateService.hasPendingUpdate()) {
+      return true;
+    }
+
+    channel ??= VersionModule.installer.releaseChannel;
+    final x = service ?? sl.get<KyberGRPCService>();
+    try {
+      final versions = await x.launcherClient.versions(
+        ServiceVersionsRequest(id: _linuxModuleId, channel: channel),
+      );
+      final latest =
+          versions.versions.firstWhereOrNull((v) => v.isLatest);
+      if (latest == null) {
+        _logger.info(
+          'No latest $_linuxModuleId published on channel $channel; '
+          'skipping Linux self-update prompt.',
+        );
+        return false;
+      }
+      final current = await _linuxInstalledVersion();
+      if (current == null) {
+        // No reliable local version — don't prompt, the user would
+        // not have any way to make the comparison work.
+        return false;
+      }
+      return latest.version != current;
+    } catch (e, s) {
+      _logger.warning(
+        'Linux launcher version check failed; treating as no-update',
+        e,
+        s,
+      );
+      return false;
+    }
+  }
+
+  Future<void> _runLinuxLauncherUpdate({
+    String? channel,
+    KyberGRPCService? service,
+    void Function(int, int)? onProgress,
+  }) async {
+    // If the apply step is already pending from a previous run, just
+    // hand off to the sidecar and exit instead of re-downloading.
+    if (LinuxSelfUpdateService.hasPendingUpdate()) {
+      _logger.info(
+        'Pending update detected; restarting via update_apply.sh',
+      );
+      await LinuxSelfUpdateService.applyPendingAndRestart();
+      return;
+    }
+
+    channel ??= VersionModule.installer.releaseChannel;
+    final x = service ?? sl.get<KyberGRPCService>();
+    final versions = await x.launcherClient.versions(
+      ServiceVersionsRequest(id: _linuxModuleId, channel: channel),
+    );
+    final latest = versions.versions.firstWhereOrNull((v) => v.isLatest);
+    if (latest == null) {
+      NotificationService.showNotification(
+        message: 'Server hat keine Linux-Version auf Channel "$channel" '
+            'veröffentlicht.',
+      );
+      return;
+    }
+
+    await LinuxSelfUpdateService.downloadAndStage(
+      version: latest.version,
+      channel: channel,
+      onProgress: onProgress,
+    );
+    // Note: we deliberately do NOT persist latest.version here. The
+    // `current` symlink (flipped by update_apply.sh on success) is
+    // the single source of truth. Storing the new version eagerly
+    // would lie about what's actually installed if the apply step
+    // fails or the user kills the launcher mid-restart.
+
+    NotificationService.showNotification(
+      message: 'Update auf ${latest.version} bereit. Launcher startet neu '
+          'um die neue Version zu aktivieren.',
+    );
+    _logger.info('Staged Linux launcher ${latest.version}; restarting');
+
+    // Apply & restart immediately. update_apply.sh swaps the symlink
+    // and execs into the new build. Single call — applyPendingAndRestart
+    // exit(0)s the current process, anything after this line is dead
+    // code.
+    await LinuxSelfUpdateService.applyPendingAndRestart();
   }
 }

@@ -1,0 +1,21 @@
+#!/bin/bash
+# Wrapper xdg-open for Kyber CLI.
+# Intercepts EA auth URLs and opens them in a WebView that can handle
+# the qrc:// redirect. Falls back to the system browser if the WebView
+# dependencies are not available.
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REAL_XDG_OPEN="$(PATH=$(echo "$PATH" | sed "s|$SCRIPT_DIR/bin:||g") which xdg-open)"
+if echo "$1" | grep -q 'accounts.ea.com/connect/auth'; then
+    WEBVIEW="$SCRIPT_DIR/ea-auth-webview.py"
+    PYTHON="/usr/bin/python3"
+    if [ -x "$WEBVIEW" ] && "$PYTHON" -c "import gi" 2>/dev/null; then
+        "$PYTHON" "$WEBVIEW" "$1" &
+        exit 0
+    else
+        echo "WebView not available (install: sudo apt install gir1.2-webkit2-4.1 python3-gi)"
+        echo "Falling back to system browser."
+        exec "$REAL_XDG_OPEN" "$1"
+    fi
+else
+    exec "$REAL_XDG_OPEN" "$@"
+fi

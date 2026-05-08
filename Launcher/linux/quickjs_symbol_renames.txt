@@ -1,0 +1,4 @@
+js_malloc qj_malloc
+js_free qj_free
+js_realloc qj_realloc
+js_strdup qj_strdup

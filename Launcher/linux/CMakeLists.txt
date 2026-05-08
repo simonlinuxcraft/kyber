@@ -87,18 +87,26 @@ set_target_properties(${BINARY_NAME}
 )
 
 
-# Generated plugin build rules, which manage building the plugins and adding
-# them to the application.
-include(flutter/generated_plugins.cmake)
-
-
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
 # directory.
+# This must be set BEFORE including generated_plugins.cmake — some plugins
+# (e.g. flutter_js) overwrite CMAKE_INSTALL_PREFIX with FORCE in their own
+# CMakeLists, which would otherwise route the app bundle into the plugin's
+# binary directory.
 set(BUILD_BUNDLE_DIR "${PROJECT_BINARY_DIR}/bundle")
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}" CACHE PATH "..." FORCE)
 endif()
+# Mark the prefix as user-set so that downstream plugin CMakeLists guarded by
+# CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT (e.g. flutter_js) do not steal
+# the install prefix and redirect the app bundle into their binary dir.
+set(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT FALSE)
+
+
+# Generated plugin build rules, which manage building the plugins and adding
+# them to the application.
+include(flutter/generated_plugins.cmake)
 
 # Start with a clean build bundle directory every time.
 install(CODE "
@@ -118,7 +126,10 @@ install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
-  install(FILES "${bundled_library}"
+  # PROGRAMS preserves the executable bit, which FILES does not. Plugin bundles
+  # may include real executables (e.g. sentry's crashpad_handler) and not just
+  # shared libraries, and the executable bit is required for posix_spawn.
+  install(PROGRAMS "${bundled_library}"
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endforeach(bundled_library)
@@ -143,3 +154,10 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# Post-install hooks. Must come AFTER include(flutter/generated_plugins.cmake)
+# so that the generated cmake_install.cmake here ends up at the tail of the
+# install order — i.e. after every plugin sub-directory has installed its .so
+# files into the bundle. This is the only place where we can patch a plugin
+# binary that's been written by an upstream plugin's own install() rules.
+add_subdirectory(post_install)

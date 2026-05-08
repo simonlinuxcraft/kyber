@@ -242,7 +242,7 @@ class ArchiveExtractor {
 
       var installed = 0;
       for (final file in pluginFiles) {
-        final dest = '$launcherDir\\Plugins\\${basename(file.path)}';
+        final dest = join(launcherDir, 'Plugins', basename(file.path));
 
         if (File(dest).existsSync()) {
           await File(dest).delete();

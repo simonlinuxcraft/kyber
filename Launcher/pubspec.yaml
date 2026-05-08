@@ -131,6 +131,11 @@ dependency_overrides:
     git:
       url: https://github.com/media-kit/media-kit
       path: media_kit
+  # Ubuntu 24.04 ships no libwpewebkit-1.0; replace the upstream Linux
+  # implementation with a no-op stub so `flutter build linux` succeeds.
+  # Runtime WebView calls on Linux will not work.
+  flutter_inappwebview_linux:
+    path: third_party/flutter_inappwebview_linux_stub
 
 dev_dependencies:
   build_runner: ^2.8.0
@@ -167,7 +172,7 @@ flutter:
   fonts:
     - family: Aurebesh
       fonts:
-        - asset: assets/fonts/Aurebesh.otf
+        - asset: assets/fonts/AurebeshRodian.otf
     - family: IBM-Plex-Mono
       fonts:
         - asset: assets/fonts/IBMPlexMono-Text.otf
@@ -175,8 +180,11 @@ flutter:
           weight: 700
     - family: BattlefrontUI
       fonts:
-        - asset: assets/fonts/Univers_Next_Pro_Medium_Condensed.ttf
-        - asset: assets/fonts/Univers_Next_Pro_Medium_Condensed_Italic.ttf
+        - asset: assets/fonts/BarlowCondensed-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/BarlowCondensed-MediumItalic.ttf
+          weight: 500
+          style: italic
   assets:
     - assets/
     - assets/ca/

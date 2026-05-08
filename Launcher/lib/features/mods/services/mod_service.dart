@@ -57,10 +57,18 @@ class ModService with ChangeNotifier {
     _paused = paused;
   }
 
-  static String getBasePath() => Preferences.general.modsPath;
+  static String getBasePath() {
+    final configured = Preferences.general.modsPath;
+    if (configured.isNotEmpty) return configured;
+    // Fallback when the setup wizard hasn't run (typical on Linux,
+    // where the user never went through the Windows installer that
+    // pre-populates this Hive key). FileHelper.getModsDirectory()
+    // returns the platform-correct default — same path the install
+    // script and mod-import flow already use.
+    return FileHelper.getModsDirectory().path;
+  }
 
-  static Directory getBasePathAsDir() =>
-      Directory(Preferences.general.modsPath);
+  static Directory getBasePathAsDir() => Directory(getBasePath());
 
   @override
   void dispose() {

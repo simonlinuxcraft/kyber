@@ -13,6 +13,7 @@ import 'package:kyber_launcher/features/mods/services/mod_service.dart';
 import 'package:kyber_launcher/features/reports/dialogs/report_player_dialog.dart';
 import 'package:kyber_launcher/features/server_browser/models/server_filter.dart';
 import 'package:kyber_launcher/features/server_browser/providers/server_browser_cubit.dart';
+import 'package:kyber_launcher/features/server_browser/dialogs/join_server_dialog.dart';
 import 'package:kyber_launcher/features/server_browser/widgets/server_info_box/background_image.dart';
 import 'package:kyber_launcher/features/server_browser/widgets/server_info_box/download_progress.dart';
 import 'package:kyber_launcher/features/server_browser/widgets/server_info_box/header.dart';
@@ -515,7 +516,22 @@ class _ServerInfoBoxState extends State<ServerInfoBox> {
                                   final item = selectedServer
                                       .getSorted()[index];
                                   final serverInfo = item;
-                                  return Row(
+                                  // KYBER-LINUX-PORT-MOD: Make instance row
+                                  // clickable; opens the CosmeticModsDialog
+                                  // with this instance preselected.
+                                  return mt.Material(
+                                    color: Colors.transparent,
+                                    child: mt.InkWell(
+                                      hoverColor: Colors.white.withOpacity(0.04),
+                                      splashColor: Colors.white.withOpacity(0.06),
+                                      onTap: () => showKyberDialog(
+                                        context: context,
+                                        builder: (_) => CosmeticModsDialog(
+                                          server: selectedServer,
+                                          preselectedInstance: item,
+                                        ),
+                                      ),
+                                      child: Row(
                                     children: [
                                       SizedBox(
                                         width: 75,
@@ -656,6 +672,8 @@ class _ServerInfoBoxState extends State<ServerInfoBox> {
                                         ),
                                       ),
                                     ],
+                                  ),
+                                    ),
                                   );
                                 },
                                 itemCount: selectedServer.servers.length,

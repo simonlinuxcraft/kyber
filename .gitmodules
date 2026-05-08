@@ -1,7 +1,8 @@
 [submodule "ThirdParty/Maxima"]
 	path = ThirdParty/Maxima
-	url = https://github.com/ArmchairDevelopers/Maxima
+	url = https://github.com/simonlinuxcraft/Maxima.git
+	branch = linux-port-launcher
 [submodule "CLI/ThirdParty/Maxima"]
 	path = CLI/ThirdParty/Maxima
-	url = https://github.com/ArmchairDevelopers/Maxima
-	branch = revert/umu-setup-changes
+	url = https://github.com/simonlinuxcraft/Maxima.git
+	branch = linux-port-cli

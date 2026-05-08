@@ -1,5 +1,8 @@
 [toolchain]
-channel = "nightly-2025-01-01"
+# Bumped from nightly-2025-01-01 to match the Launcher's pinned channel.
+# Some transitive deps (icu_collections 2.2, sha2-const 0.1.3) require
+# rustc >= 1.86, which 2025-01-01 does not have.
+channel = "nightly-2026-04-06"
 
 targets = [
     # Windows

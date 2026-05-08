@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber_collection/kyber_collection.dart';
 import 'package:kyber_launcher/features/plugin_manager/plugins/bsm_plugin.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 class PluginManager with ChangeNotifier {
   PluginManager() {
@@ -14,7 +15,7 @@ class PluginManager with ChangeNotifier {
   final _logger = Logger('plugin_manager');
 
   String get pluginsPath =>
-      '${FileHelper.getLauncherDirectory().path}\\Plugins';
+      p.join(FileHelper.getLauncherDirectory().path, 'Plugins');
 
   void initialize() {
     _logger.info('Initializing PluginManager');
@@ -37,7 +38,11 @@ class PluginManager with ChangeNotifier {
   StreamSubscription<FileSystemEvent>? _fileWatcher;
 
   void loadPlugins() {
-    if (File(BSMPlugin.path).existsSync()) {
+    // The plugin DLL is a Win32 PE; on Linux it's executed inside the
+    // Wine prefix together with the rest of the Frosty stack, the
+    // launcher itself can't load it via dart:ffi. Surfacing the
+    // existence of the file as "available" would mislead the UI.
+    if (BSMPlugin.isUsable && File(BSMPlugin.path).existsSync()) {
       _logger.info('Loading BSMPlugin');
       bsmPlugin = BSMPlugin();
     }

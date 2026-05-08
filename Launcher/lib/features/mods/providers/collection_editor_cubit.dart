@@ -7,6 +7,7 @@ import 'package:kyber_collection/kyber_collection.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
 import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/main.dart';
+import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 class CollectionEditorCubit extends Cubit<CollectionEditorState> {
@@ -145,7 +146,7 @@ class CollectionEditorCubit extends Cubit<CollectionEditorState> {
         .hiddenMods
         .where((e) => mod.filename == e.filename)
         .isNotEmpty) {
-      await File('${ModService.getBasePath()}\\${mod.filename!}').delete();
+      await File(p.join(ModService.getBasePath(), mod.filename!)).delete();
       await saveCollection();
     }
 

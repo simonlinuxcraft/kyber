@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -37,10 +38,36 @@ class ProtocolHelper {
   static Future<void> register() async {
     await protocolHandler.register(Strings.protocolName);
     await protocolHandler.register('nxm');
+
+    // The protocol_handler plugin has no Linux backend (only
+    // Android/iOS/macOS/Windows), so register('nxm') above is a no-op
+    // there. We register the scheme ourselves via xdg-mime + a small
+    // bash bridge that drops the URL into a per-user response file.
+    if (Platform.isLinux) {
+      await _registerLinuxNxmHandler();
+    }
   }
 
   static Future<void> initialize() async {
-    final initialUrl = await protocolHandler.getInitialUrl();
+    // On Linux the bash bridge can't send IPC to the running launcher
+    // (the protocol_handler plugin has no Linux MethodChannel). Start
+    // the inotify watcher first so it's running before any nxm:// click
+    // could arrive.
+    if (Platform.isLinux) {
+      await _startLinuxNxmWatcher();
+    }
+
+    // protocolHandler.getInitialUrl() throws MissingPluginException on
+    // Linux because there's no Linux backend — guard the call so the
+    // exception doesn't tear down the rest of initialize().
+    String? initialUrl;
+    try {
+      initialUrl = await protocolHandler.getInitialUrl();
+    } catch (e) {
+      if (!Platform.isLinux) {
+        Logger.root.warning('protocolHandler.getInitialUrl failed: $e');
+      }
+    }
     if (Preferences.general.setup && initialUrl != null) {
       await ProtocolHelper.handleCall(initialUrl);
     }
@@ -278,5 +305,193 @@ class ProtocolHelper {
         context.read<ServerBrowserCubit>().selectServer(server);
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Linux NXM bridge.
+  //
+  // The protocol_handler plugin only ships Android / iOS / macOS / Windows
+  // backends, so on Linux we set the system mime handler ourselves and
+  // bridge the bash-handler -> running-launcher gap with a watched file
+  // under $XDG_RUNTIME_DIR.
+  // ---------------------------------------------------------------------------
+
+  static const _linuxDesktopFileBaseName = 'kyber-bf2-nxm.desktop';
+  static StreamSubscription<FileSystemEvent>? _linuxNxmWatcher;
+
+  /// Completer that the download service installs when it explicitly
+  /// awaits a `nxm://` URL (free-user flow on Linux). When set, the
+  /// inotify watcher completes this completer instead of running the
+  /// usual handleCall() / enqueueDownload pipeline — so the same NXM
+  /// response isn't processed twice (once as the awaited token, once
+  /// as a freshly enqueued download).
+  static Completer<String>? _pendingNxmCompleter;
+
+  /// Register a one-shot listener that captures the next nxm:// URL the
+  /// inotify bridge receives instead of routing it through handleCall().
+  /// Caller must own the returned future and time it out itself.
+  static Future<String> awaitNextNxmUrl() {
+    _pendingNxmCompleter?.completeError(
+      StateError('superseded by newer nxm await'),
+    );
+    final c = Completer<String>();
+    _pendingNxmCompleter = c;
+    return c.future;
+  }
+
+  static void cancelPendingNxmWait() {
+    _pendingNxmCompleter = null;
+  }
+
+  static String _linuxRuntimeDir() {
+    final fromEnv = Platform.environment['XDG_RUNTIME_DIR'];
+    if (fromEnv != null && fromEnv.isNotEmpty) return fromEnv;
+    return '/run/user/${Platform.environment['UID'] ?? '1000'}';
+  }
+
+  static String _linuxNxmResponsePath() =>
+      join(_linuxRuntimeDir(), 'kyber', 'nxm-response');
+
+  static Future<void> _registerLinuxNxmHandler() async {
+    try {
+      final exeDir = dirname(Platform.resolvedExecutable);
+      final handlerScript = join(exeDir, 'cli', 'bin', 'nxm_handler.sh');
+      if (!File(handlerScript).existsSync()) {
+        Logger.root.warning(
+          'nxm_handler.sh missing at $handlerScript — nxm:// links from '
+          'the browser will not reach the launcher. Free-user mod '
+          'downloads will be unavailable.',
+        );
+        return;
+      }
+
+      final home = Platform.environment['HOME'];
+      if (home == null) {
+        Logger.root.warning('\$HOME unset; cannot register nxm handler');
+        return;
+      }
+      final appsDir =
+          Directory(join(home, '.local', 'share', 'applications'));
+      await appsDir.create(recursive: true);
+
+      final desktopFile = File(join(appsDir.path, _linuxDesktopFileBaseName));
+      await desktopFile.writeAsString('''
+[Desktop Entry]
+Type=Application
+Name=Kyber NXM Handler
+Comment=Receives nxm:// links from Nexus Mods and forwards them to the Kyber launcher.
+Exec=$handlerScript %u
+NoDisplay=true
+Terminal=false
+StartupNotify=false
+MimeType=x-scheme-handler/nxm;
+''');
+
+      // Best-effort registration. Each step is independent — if one
+      // tool is missing on a slim distro we still want the others to
+      // run.
+      for (final step in <List<String>>[
+        ['update-desktop-database', appsDir.path],
+        [
+          'xdg-mime',
+          'default',
+          _linuxDesktopFileBaseName,
+          'x-scheme-handler/nxm',
+        ],
+      ]) {
+        try {
+          final r = await Process.run(step.first, step.skip(1).toList());
+          if (r.exitCode != 0) {
+            Logger.root.warning(
+              '${step.join(' ')} exited with ${r.exitCode}: ${r.stderr}',
+            );
+          }
+        } catch (e) {
+          Logger.root.warning('${step.first} failed: $e');
+        }
+      }
+
+      Logger.root.info(
+        'Linux nxm:// handler registered: ${desktopFile.path} -> '
+        '$handlerScript',
+      );
+    } catch (e, s) {
+      Logger.root.severe('Failed to register Linux nxm handler', e, s);
+    }
+  }
+
+  static Future<void> _startLinuxNxmWatcher() async {
+    try {
+      final responsePath = _linuxNxmResponsePath();
+      final responseFile = File(responsePath);
+      await Directory(dirname(responsePath)).create(recursive: true);
+
+      // Drain any URL that landed before the launcher started.
+      if (responseFile.existsSync()) {
+        final initial = (await responseFile.readAsString()).trim();
+        if (initial.isNotEmpty) {
+          await responseFile.writeAsString('');
+          unawaited(_dispatchLinuxNxmUrl(initial));
+        }
+      } else {
+        await responseFile.writeAsString('');
+      }
+
+      // The bash handler renames a temp file over the target, so the
+      // inode changes on each delivery. Watching the file itself would
+      // detach after the first event — watch the parent directory and
+      // filter by path instead.
+      final dir = Directory(dirname(responsePath));
+      await _linuxNxmWatcher?.cancel();
+      _linuxNxmWatcher = dir.watch().listen(
+        (event) async {
+          if (event.path != responsePath) return;
+          if (event.type != FileSystemEvent.create &&
+              event.type != FileSystemEvent.modify) {
+            return;
+          }
+          try {
+            if (!responseFile.existsSync()) return;
+            final url = (await responseFile.readAsString()).trim();
+            if (url.isEmpty) return;
+            await responseFile.writeAsString('');
+            await _dispatchLinuxNxmUrl(url);
+          } catch (e, s) {
+            Logger.root.severe('nxm watcher dispatch failed', e, s);
+          }
+        },
+        onError: (Object e) =>
+            Logger.root.warning('nxm watcher error: $e'),
+      );
+
+      Logger.root.info('Linux nxm watcher active on $responsePath');
+    } catch (e, s) {
+      Logger.root.severe('Failed to start Linux nxm watcher', e, s);
+    }
+  }
+
+  static Future<void> _dispatchLinuxNxmUrl(String url) async {
+    Logger.root.info('Received nxm:// via Linux bridge: $url');
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (_) {
+      // window may not be ready yet during early init — handleCall()
+      // below will still process the URL.
+    }
+
+    // If somebody is awaiting an nxm:// response (free-user mod
+    // download flow), feed it there instead of enqueuing a fresh
+    // download. Otherwise fall through to the normal handler so a
+    // browser-initiated nxm:// click still works when the launcher is
+    // sitting idle.
+    final pending = _pendingNxmCompleter;
+    if (pending != null && !pending.isCompleted) {
+      _pendingNxmCompleter = null;
+      pending.complete(url);
+      return;
+    }
+
+    await handleCall(url);
   }
 }

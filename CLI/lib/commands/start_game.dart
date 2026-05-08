@@ -37,7 +37,30 @@ class StartGameCommand extends Command<int> {
       ..addOption('game-data-path', help: 'Specify the game data path', valueHelp: 'path', callback: (p0) => p0 is String ? Directory(p0) : null)
       ..addOption('module-branch', help: 'Specify the branch to use for the Kyber module', valueHelp: 'branch')
       ..addOption('module-path', help: 'Specify a custom directory to use for the Kyber module', valueHelp: 'path/to/module')
-      ..addOption('interface-port', valueHelp: '9000');
+      ..addOption('interface-port', valueHelp: '9000')
+      // --init-request-file: full InitializeRequest serialised as proto3 JSON.
+      // Used by the Launcher (Linux) to delegate game launches to this CLI
+      // without re-implementing every option flag. Overrides server-id /
+      // collection-file / raw-mods if present.
+      ..addOption(
+        'init-request-file',
+        help: 'Path to a JSON file containing a serialized InitializeRequest. '
+            'When set, this overrides server-id/collection-file/raw-mods. '
+            "Used by the Launcher's Linux delegation path.",
+        valueHelp: 'path/to/init.json',
+      );
+    // --skip-updates is already declared as a top-level flag in
+    // command_runner.dart; we don't redeclare it here.
+  }
+
+  /// Convert a native Linux path to the Wine drive-letter form so that
+  /// Kyber.dll (running inside the Wine prefix) can resolve mod files via
+  /// the Win32 API. macOS/Windows pass the path through unchanged.
+  static String _toWinePath(String nativePath) {
+    if (!Platform.isLinux) return nativePath;
+    if (nativePath.length >= 2 && nativePath[1] == ':') return nativePath;
+    final normalised = nativePath.replaceAll('/', r'\');
+    return r'Z:' + (normalised.startsWith(r'\') ? normalised : '\\$normalised');
   }
 
   @override
@@ -225,13 +248,51 @@ class StartGameCommand extends Command<int> {
 
     final grpcServer = KyberGRPCServer();
     await grpcServer.start();
-    grpcServer.setInitializeRequest(InitializeRequest(joinServer: joinServerByIP, modData: modData));
+
+    // If --init-request-file was passed, load the serialized request
+    // verbatim (Launcher delegation path). Otherwise build it from the
+    // individual flags above.
+    InitializeRequest initRequest;
+    final initRequestFile = argResults?['init-request-file'] as String?;
+    if (initRequestFile != null) {
+      final f = File(initRequestFile);
+      if (!f.existsSync()) {
+        _logger.err('init-request-file does not exist: $initRequestFile');
+        return ExitCode.usage.code;
+      }
+      try {
+        initRequest = InitializeRequest()
+          ..mergeFromProto3Json(jsonDecode(f.readAsStringSync()));
+      } catch (e) {
+        _logger.err('Failed to parse init-request-file: $e');
+        return ExitCode.usage.code;
+      }
+    } else {
+      initRequest =
+          InitializeRequest(joinServer: joinServerByIP, modData: modData);
+    }
+
+    // Linux: rewrite ModData.basePath to the Wine Z: drive so that
+    // Kyber.dll can resolve mod files via the Win32 API. modPaths are
+    // relative to basePath and stay unchanged.
+    if (Platform.isLinux && initRequest.hasModData()) {
+      final original = initRequest.modData.basePath;
+      if (original.isNotEmpty) {
+        initRequest.modData.basePath = _toWinePath(original);
+      }
+    }
+
+    grpcServer.setInitializeRequest(initRequest);
 
     _logger.info('Kyber will listen on port $kyberPort');
     final pid = await startGame(gameSlug: 'star-wars-battlefront-2', gamePathOverride: argResults?['game-path'] as String?, gameArgs: []);
 
-    _logger.info('Injecting Kyber from ${FileHelper.getModuleDirectory().path}/Kyber.dll...');
-    injectKyber(pid: pid, path: FileHelper.getModuleDirectory().path + "\\Kyber.dll");
+    final moduleDir = FileHelper.getModuleDirectory().path;
+    final kyberDllPath = Platform.isLinux
+        ? _toWinePath(moduleDir) + r'\Kyber.dll'
+        : '$moduleDir\\Kyber.dll';
+    _logger.info('Injecting Kyber from $kyberDllPath...');
+    injectKyber(pid: pid, path: kyberDllPath);
 
     sl.registerSingleton<MaximaGameInstance>(
       MaximaGameInstance(

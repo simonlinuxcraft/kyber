@@ -61,8 +61,10 @@ class CustomLogger {
     if (debugLogsEnabled) {
       PlatformInAppWebViewController.debugLoggingSettings.enabled = true;
       PlatformInAppWebViewController.debugLoggingSettings.usePrint = true;
-      Logger.root.level = Level.ALL;
     }
+    // Rust-seitig immer alle Level durchlassen – flutter_logger_init! ist auf
+    // LevelFilter::Debug konfiguriert, die Dart-Filterung war der Engpass.
+    Logger.root.level = Level.ALL;
 
     mx.setupLogStream().listen((event) {
       final Level level = switch (event.logLevel) {

@@ -1,0 +1,84 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 simonlinuxcraft
+#
+# kyber-bf2 — Launcher entry point that prefers the per-user self-update
+# slot over the system bundle.
+#
+# When the .deb is installed, this script ends up at /usr/bin/kyber-bf2
+# and the system launcher tree at /usr/share/kyber-bf2/payload/launcher/.
+# The self-update service (linux_self_update_service.dart) drops new
+# builds into $HOME/.local/share/kyber/launcher/versions/<X.Y.Z>/ and
+# flips a `current` symlink. We prefer that slot when it exists so
+# users get instant beta updates without needing dpkg / sudo.
+#
+# Order of resolution:
+#
+#   1. KYBER_LAUNCHER_BIN env override (developers / debugging)
+#   2. update_pending.json present  → run update_apply.sh first, then
+#      whatever it leaves in `current`
+#   3. ~/.local/share/kyber/launcher/current/kyber_launcher (user update)
+#   4. system launcher (whatever shipped via apt; we resolve relative
+#      to this script's location so a portable install also works)
+
+set -eu
+
+USER_DIR="${HOME}/.local/share/kyber/launcher"
+USER_CURRENT="$USER_DIR/current"
+PENDING_FILE="$USER_DIR/update_pending.json"
+
+# Normally /usr/share/kyber-bf2/payload/launcher/kyber_launcher when
+# installed via .deb. For developer builds the wrapper sits next to
+# the launcher binary inside build/linux/x64/release/bundle/, so try
+# that location too.
+script_dir=$(cd "$(dirname "$0")" && pwd)
+script_self=$(readlink -f "$0" 2>/dev/null || echo "$0")
+SYSTEM_LAUNCHER=""
+for candidate in \
+    /usr/share/kyber-bf2/payload/launcher/kyber_launcher \
+    "$script_dir/kyber_launcher" \
+    "$script_dir/../share/kyber-bf2/payload/launcher/kyber_launcher"; do
+  # Recursion guard: skip ourselves. Without this, if the wrapper is
+  # accidentally renamed or symlinked to `kyber_launcher`, exec'ing
+  # `candidate` would re-enter this script forever.
+  candidate_real=$(readlink -f "$candidate" 2>/dev/null || echo "$candidate")
+  if [ "$candidate_real" = "$script_self" ]; then
+    continue
+  fi
+  if [ -x "$candidate" ]; then
+    SYSTEM_LAUNCHER="$candidate"
+    break
+  fi
+done
+
+# Apply a pending update before launching anything. The sidecar swaps
+# `current` and exits — we run it with NOEXEC=1 so we control the
+# subsequent exec ourselves and can fall through to the right
+# launcher binary.
+if [ -s "$PENDING_FILE" ]; then
+  apply_script="$script_dir/update_apply.sh"
+  if [ ! -x "$apply_script" ] && [ -n "$SYSTEM_LAUNCHER" ]; then
+    apply_script="$(dirname "$SYSTEM_LAUNCHER")/cli/bin/update_apply.sh"
+  fi
+  if [ -x "$apply_script" ]; then
+    NOEXEC=1 "$apply_script" || true
+  fi
+fi
+
+# Pick the launcher binary.
+target="${KYBER_LAUNCHER_BIN:-}"
+if [ -z "$target" ] && [ -L "$USER_CURRENT" ] \
+   && [ -x "$USER_CURRENT/kyber_launcher" ]; then
+  target="$USER_CURRENT/kyber_launcher"
+fi
+if [ -z "$target" ] && [ -n "$SYSTEM_LAUNCHER" ]; then
+  target="$SYSTEM_LAUNCHER"
+fi
+
+if [ -z "$target" ]; then
+  echo "kyber-bf2: no launcher binary found" >&2
+  exit 1
+fi
+
+cd "$(dirname "$target")"
+exec "$target" "$@"

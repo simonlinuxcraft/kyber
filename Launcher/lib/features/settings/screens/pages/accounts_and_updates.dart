@@ -106,9 +106,21 @@ class AccountsAndUpdates extends StatelessWidget {
                   title: 'Logout',
                   text: 'EA Logout',
                   onClick: () async {
-                    await File(
-                      '${Platform.environment['APPDATA']}\\ArmchairDevelopers\\Maxima\\data\\auth.toml',
-                    ).delete();
+                    // MAXIMA-LINUX-PORT-MOD: original used %APPDATA% which is
+                    // null on Linux and made File.delete() throw, aborting the
+                    // entire callback. Build the platform-correct path and
+                    // guard the delete with existsSync.
+                    final home = Platform.environment['HOME'] ?? '';
+                    final appdata = Platform.environment['APPDATA'] ?? '';
+                    final authPath = Platform.isLinux
+                        ? '$home/.local/share/maxima/auth.toml'
+                        : Platform.isMacOS
+                        ? '$home/Library/Application Support/maxima/auth.toml'
+                        : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
+                    final authFile = File(authPath);
+                    if (authFile.existsSync()) {
+                      await authFile.delete();
+                    }
                     await launchUrlString(
                       'https://accounts.ea.com/connect/logout?client_id=EADOTCOM-WEB-SERVER&redirect_uri=https://ea.com',
                     );
@@ -307,8 +319,12 @@ class AccountsAndUpdates extends StatelessWidget {
                                   height: 40,
                                 ),
                               ),
-                              applicationLegalese: '© 2024 ArmchairDevelopers',
-                              applicationName: 'KYBER Launcher',
+                              applicationLegalese:
+                                  '© 2024 ArmchairDevelopers · © 2026 Kyber Linux Port contributors\n'
+                                  'Licensed under GPL-3.0-only.\n'
+                                  'Source: https://github.com/simonlinuxcraft/kyber-linuxport-inofficial\n'
+                                  'Star Wars and Battlefront are trademarks of Lucasfilm Ltd.; this project is not affiliated with EA, DICE, or Lucasfilm.',
+                              applicationName: 'KYBER Launcher (Linux Port)',
                               applicationVersion: snapshot.data?.version,
                             );
                           },
@@ -323,9 +339,19 @@ class AccountsAndUpdates extends StatelessWidget {
                 title: 'Logout',
                 text: 'EA Logout',
                 onClick: () async {
-                  await File(
-                    '${Platform.environment['APPDATA']}\\ArmchairDevelopers\\Maxima\\data\\auth.toml',
-                  ).delete();
+                  // MAXIMA-LINUX-PORT-MOD: same as the other EA Logout button
+                  // higher up in this file — see comment there.
+                  final home = Platform.environment['HOME'] ?? '';
+                  final appdata = Platform.environment['APPDATA'] ?? '';
+                  final authPath = Platform.isLinux
+                      ? '$home/.local/share/maxima/auth.toml'
+                      : Platform.isMacOS
+                      ? '$home/Library/Application Support/maxima/auth.toml'
+                      : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
+                  final authFile = File(authPath);
+                  if (authFile.existsSync()) {
+                    await authFile.delete();
+                  }
                   await launchUrlString(
                     'https://accounts.ea.com/connect/logout?client_id=EADOTCOM-WEB-SERVER&redirect_uri=https://ea.com',
                   );

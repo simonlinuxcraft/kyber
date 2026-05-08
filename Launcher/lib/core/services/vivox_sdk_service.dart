@@ -31,6 +31,15 @@ class VivoxService with ChangeNotifier {
   }
 
   Future<VivoxService> getInstance() async {
+    // No native Vivox SDK ships for Linux. The .dll is loaded by Kyber.dll
+    // inside the Wine prefix; the launcher process itself never opens it.
+    // Trying to dlopen('vivoxsdk.dll') from a Linux process fails with an
+    // unhelpful error and breaks voice-feature initialization.
+    if (Platform.isLinux) {
+      _logger.fine('Skipping Vivox init on Linux (handled inside Wine)');
+      return this;
+    }
+
     final moduleDir = FileHelper.getModuleDirectory().path;
 
     if (!kDebugMode && Platform.isMacOS) {

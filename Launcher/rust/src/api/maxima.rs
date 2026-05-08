@@ -74,7 +74,15 @@ pub async fn inject_kyber(pid: u32, path: String) -> anyhow::Result<()> {
 
 #[cfg(not(windows))]
 pub async fn inject_kyber(pid: u32, path: String) -> anyhow::Result<()> {
-    Ok(())
+    use maxima::core::background_service::request_library_injection;
+    // path arrives as a Linux absolute path (e.g. /home/…/module/Kyber.dll).
+    // wine-helper.exe runs inside Wine where the Unix root is exposed as Z:\.
+    let wine_path = if path.starts_with('/') {
+        format!("Z:{}", path.replace('/', "\\"))
+    } else {
+        path
+    };
+    Ok(request_library_injection(pid, &wine_path).await?)
 }
 
 fn convert_service_player(player: &MaximaServicePlayer) -> ServicePlayer {
@@ -358,6 +366,21 @@ pub async fn start_game(
         game.offer_id().to_owned()
     };
 
+    // Re-verify the critical Maxima → Steam-compatdata symlink right before
+    // launch — covers the case where it was removed/replaced after init_app()
+    // (e.g. by a cleanup script, by Steam Verify Local Files, or by manual fs
+    // tinkering). Cheap to run; bails early if the symlink is already correct.
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::ensure_critical_symlinks();
+
+    // Ensure Wine locale is en-US before bootstrap launches BF2.
+    // Also covers first-run: if prefix was just created by a prior bootstrap
+    // invocation, the file now exists and we can patch it.
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::patch_wine_locale_to_en_us();
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::patch_ea_user_language();
+
     // TODO: re-enable cloud-saves (@headassbtw please fix)
     launch::start_game(maxima_arc.clone(), LaunchMode::Online(offer_id), LaunchOptions {
         path_override: game_path_override,
@@ -383,6 +406,7 @@ pub async fn start_game(
             }
         }
 
+        maxima.update().await;
         drop(maxima);
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
@@ -581,8 +605,35 @@ pub async fn start_maxima(
 
 #[frb(init)]
 pub fn init_app() {
+    // Linux locale bootstrap MUST happen before setup_default_user_utils()
+    // because the latter spawns the tokio runtime threads, after which
+    // std::env::set_var() would race with concurrent env reads (UB on
+    // glibc). Doing it first keeps the env mutation single-threaded.
+    //
+    // ensure_critical_symlinks() runs FIRST: subsequent registry/INI patches
+    // operate on the wine prefix at ~/.local/share/maxima/wine/prefix. If
+    // that symlink is missing or wrong, the patches go to a useless empty
+    // prefix and BF2 launches against the un-patched Steam compatdata.
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::ensure_critical_symlinks();
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::ensure_en_us_utf8_locale();
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::setup_steam_launch_env();
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::patch_wine_locale_to_en_us();
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::patch_ea_user_language();
+
     // Default utilities - feel free to customize
     flutter_rust_bridge::setup_default_user_utils();
+
+    // flutter_logger_init! is declared at module level with LevelFilter::Debug,
+    // but the global max-level starts at Off until a logger is installed.
+    // After setup_default_user_utils() the FRB logger is registered — lock the
+    // max level to Debug so that debug!/trace! calls in maxima-lib are not
+    // silently discarded before reaching the Dart log stream.
+    set_max_level(LevelFilter::Debug);
 }
 
 flutter_logger::flutter_logger_init!(LevelFilter::Debug);

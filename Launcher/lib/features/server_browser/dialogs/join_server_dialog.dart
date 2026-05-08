@@ -24,10 +24,20 @@ import 'package:kyber_launcher/shared/ui/utils/button_builder.dart';
 import 'package:logging/logging.dart';
 
 class CosmeticModsDialog extends StatefulWidget {
-  const CosmeticModsDialog({required this.server, this.skipPasswordCheck = false, super.key});
+  // KYBER-LINUX-PORT-MOD: Added optional `preselectedInstance` to allow
+  // direct-click on an instance in the server-info sidebar to open this
+  // dialog with that instance already selected (instead of going through
+  // the CHANGE INSTANCE dropdown manually).
+  const CosmeticModsDialog({
+    required this.server,
+    this.skipPasswordCheck = false,
+    this.preselectedInstance,
+    super.key,
+  });
 
   final Object server;
   final bool skipPasswordCheck;
+  final Server? preselectedInstance;
 
   @override
   State<CosmeticModsDialog> createState() => _CosmeticModsDialogState();
@@ -39,7 +49,7 @@ class _CosmeticModsDialogState extends State<CosmeticModsDialog> {
   String password = '';
   bool withoutMods = true;
   bool spectator = false;
-  bool showInstanceSelector = false;
+  late bool showInstanceSelector;
 
   late Server serverInfo;
 
@@ -48,7 +58,12 @@ class _CosmeticModsDialogState extends State<CosmeticModsDialog> {
 
   @override
   void initState() {
-    serverInfo = widget.server is ServerGroup ? (widget.server as ServerGroup).getPreferredServer() : widget.server as Server;
+    // KYBER-LINUX-PORT-MOD: honour preselectedInstance if provided.
+    serverInfo = widget.preselectedInstance ??
+        (widget.server is ServerGroup
+            ? (widget.server as ServerGroup).getPreferredServer()
+            : widget.server as Server);
+    showInstanceSelector = widget.preselectedInstance != null;
     correctPassword = widget.skipPasswordCheck || !serverInfo.requiresPassword;
     withoutMods = !Preferences.general.useCosmetics;
     final mods = serverInfo.mods.map((e) => CollectionMod(name: e.name, version: e.version, link: e.link)).toList();

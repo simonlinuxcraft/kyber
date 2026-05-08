@@ -217,7 +217,7 @@ class DownloadOrchestrator with ChangeNotifier {
         DownloadTask(
           url: resolved.url,
           directory:
-              '${Platform.isMacOS ? '/' : ''}${ModService.getBasePath()}',
+              '${(Platform.isMacOS || Platform.isLinux) ? '/' : ''}${ModService.getBasePath()}',
           filename: resolved.filename,
           displayName: request.displayName,
           updates: Updates.statusAndProgress,

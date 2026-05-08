@@ -172,9 +172,18 @@ class MaximaCubit extends Cubit<MaximaState> {
   }
 
   Future<void> logout() async {
-    final maximaAuthFile = File(
-      "${Platform.environment['APPDATA']}\\ArmchairDevelopers\\Maxima\\data\\auth.toml",
-    );
+    // MAXIMA-LINUX-PORT-MOD: original used a hardcoded Windows path with
+    // %APPDATA% which on Linux resolves to "null\..." and silently misses
+    // the actual auth file at ~/.local/share/maxima/auth.toml. Without the
+    // delete the user stays logged in even after the EA browser logout.
+    final home = Platform.environment['HOME'] ?? '';
+    final appdata = Platform.environment['APPDATA'] ?? '';
+    final authPath = Platform.isLinux
+        ? '$home/.local/share/maxima/auth.toml'
+        : Platform.isMacOS
+        ? '$home/Library/Application Support/maxima/auth.toml'
+        : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
+    final maximaAuthFile = File(authPath);
     if (maximaAuthFile.existsSync()) {
       maximaAuthFile.deleteSync();
     }

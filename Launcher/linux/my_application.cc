@@ -14,9 +14,75 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+// Locate the bundled Kyber PNG icon by probing well-known paths relative
+// to the running executable. Returns a heap-allocated absolute path, or
+// NULL if no icon was found. Caller must g_free() the result.
+static gchar* locate_bundled_icon() {
+  // Candidate paths, tried in order. First match wins.
+  // 1. Honor $APPDIR (set by AppImage AppRun) → AppDir root.
+  // 2. Two levels up from the executable (bundle layout: usr/bin/<exe>,
+  //    icon at AppDir root).
+  // 3. Next to the executable (dev/.deb layout).
+  const gchar* appdir_env = g_getenv("APPDIR");
+  gchar* exe = g_file_read_link("/proc/self/exe", NULL);
+  gchar* exe_dir = exe != NULL ? g_path_get_dirname(exe) : NULL;
+  gchar* up_one = exe_dir != NULL ? g_path_get_dirname(exe_dir) : NULL;
+  gchar* up_two = up_one != NULL ? g_path_get_dirname(up_one) : NULL;
+
+  const gchar* candidates_dirs[] = {
+      appdir_env,
+      up_two,
+      exe_dir,
+      NULL,
+  };
+  const gchar* names[] = {"kyber-linux.png", "kyber-icon.png", NULL};
+
+  gchar* found = NULL;
+  for (int i = 0; candidates_dirs[i] != NULL && found == NULL; ++i) {
+    for (int j = 0; names[j] != NULL && found == NULL; ++j) {
+      gchar* p = g_build_filename(candidates_dirs[i], names[j], NULL);
+      if (g_file_test(p, G_FILE_TEST_IS_REGULAR)) {
+        found = p;
+      } else {
+        g_free(p);
+      }
+    }
+  }
+  g_free(exe);
+  g_free(exe_dir);
+  g_free(up_one);
+  g_free(up_two);
+  return found;
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+
+  // Set the X11 WM_CLASS res_class to "kyber-linux" so window managers can
+  // associate the window with kyber-linux.desktop via StartupWMClass, which
+  // is what makes the proper Kyber icon show in the taskbar.
+  gdk_set_program_class("kyber-linux");
+
+  // Pre-set the GTK default icon from a bundled PNG. Without this, GTK
+  // falls back to looking up the prgname in the active icon theme on first
+  // window-realize and then to "image-missing", which can crash the process
+  // on systems whose user theme uses SVG fallbacks but lacks an SVG pixbuf
+  // loader on the GdkPixbuf module path. Loading from an absolute file path
+  // bypasses the icon theme entirely.
+  {
+    gchar* icon_path = locate_bundled_icon();
+    if (icon_path != NULL) {
+      GError* err = NULL;
+      if (!gtk_window_set_default_icon_from_file(icon_path, &err)) {
+        g_warning("Failed to set default window icon from %s: %s",
+                  icon_path, err != NULL ? err->message : "unknown");
+        g_clear_error(&err);
+      }
+      g_free(icon_path);
+    }
+  }
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
@@ -40,11 +106,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "kyber_launcher");
+    gtk_header_bar_set_title(header_bar, "Kyber (Linux Port)");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "kyber_launcher");
+    gtk_window_set_title(window, "Kyber (Linux Port)");
   }
 
   gtk_window_set_default_size(window, 1280, 720);

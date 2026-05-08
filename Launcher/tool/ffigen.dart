@@ -22,7 +22,7 @@ void main() {
       compilerOptions: [
         '-include',
         'stdbool.h',
-        '-I${packageRoot.resolve('third_party/vivox').path.substring(1)}',
+        '-I${packageRoot.resolve('third_party/vivox').toFilePath()}',
       ],
       entryPoints: [
         packageRoot.resolve(

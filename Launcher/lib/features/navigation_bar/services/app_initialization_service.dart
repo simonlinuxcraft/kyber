@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
+import 'package:kyber_launcher/core/services/appimage_update_service.dart';
 import 'package:kyber_launcher/core/services/module_version_service.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/core/services/process_info.dart';
@@ -73,6 +74,11 @@ class AppInitializationService {
     await ProtocolHelper.initialize();
 
     await _checkCompatibilityMode(context);
+    // AppImage container update runs first: when a new image was
+    // downloaded the service exec()s into it and never returns, so the
+    // in-app module check below is only reached when the AppImage
+    // itself is current (or we're not running from an AppImage).
+    await sl.get<AppImageUpdateService>().checkAndUpdate();
     await _checkForUpdates(context);
     await showOpenBetaDialog(context);
     await showRulesDialog(context);

@@ -1,6 +1,7 @@
 import 'package:get_it/get_it.dart';
 import 'package:kyber/kyber.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
+import 'package:kyber_launcher/core/services/appimage_update_service.dart';
 import 'package:kyber_launcher/core/services/rich_presence.dart';
 import 'package:kyber_launcher/core/services/vivox_sdk_service.dart';
 import 'package:kyber_launcher/core/services/voip_service.dart';
@@ -23,6 +24,7 @@ void initializeDependencies() {
       KyberGRPCService.fromEnv(Preferences.admin.apiEnv),
     )
     ..registerSingleton<RichPresence>(RichPresence())
+    ..registerSingleton<AppImageUpdateService>(AppImageUpdateService())
     ..registerSingleton<MaximaInstanceService>(MaximaInstanceService())
     ..registerSingleton<KyberGRPCServer>(KyberGRPCServer())
     ..registerSingleton<ModBridgeGRPCService>(

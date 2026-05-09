@@ -166,7 +166,10 @@ class LinuxSelfUpdateService {
     Future<RandomAccessFile> claim() async {
       final h = await lockFile.open(mode: FileMode.write);
       try {
-        await h.lock(FileLock.blockingExclusive);
+        // Non-blocking exclusive lock — if another launcher instance
+        // is already self-updating, fail fast instead of serialising
+        // boots behind a multi-minute download.
+        await h.lock(FileLock.exclusive);
         return h;
       } catch (e) {
         await h.close();
@@ -209,26 +212,27 @@ class LinuxSelfUpdateService {
     final lockHandle = await claim();
     try {
 
-      // Optional SHA-256 verification: server may publish a hash in
-      // ServiceVersionDownloadUrl; absent => skip and warn.
+      // Mandatory SHA-256 verification. Without an integrity check a
+      // compromised or hostile CDN could deliver an arbitrary tarball
+      // and chain into path-traversal extract — refuse anything we
+      // cannot verify.
       final expectedHash = _extractFieldOrNull(downloadResp, 'sha256');
-      if (expectedHash != null && expectedHash.isNotEmpty) {
-        final got = await _sha256OfFile(tarballPath);
-        if (got.toLowerCase() != expectedHash.toLowerCase()) {
-          await File(tarballPath).delete();
-          throw StateError(
-            'SHA-256 mismatch on launcher tarball '
-            '(expected $expectedHash, got $got)',
-          );
-        }
-        _logger.info('Tarball SHA-256 verified.');
-      } else {
-        _logger.warning(
-          'Server did not provide a SHA-256 for $version; skipping '
-          'integrity check (Phase 1 — Phase 2 will require signed '
-          'manifests).',
+      if (expectedHash == null || expectedHash.isEmpty) {
+        await File(tarballPath).delete();
+        throw StateError(
+          'Server response for $version did not include a SHA-256 '
+          'hash; refusing unverified launcher update.',
         );
       }
+      final got = await _sha256OfFile(tarballPath);
+      if (got.toLowerCase() != expectedHash.toLowerCase()) {
+        await File(tarballPath).delete();
+        throw StateError(
+          'SHA-256 mismatch on launcher tarball '
+          '(expected $expectedHash, got $got)',
+        );
+      }
+      _logger.info('Tarball SHA-256 verified.');
 
       // Atomic-ish extract: write into a temp dir, then rename. This
       // keeps a half-extracted tree from looking installed.
@@ -357,6 +361,30 @@ class LinuxSelfUpdateService {
     final bytes = await File(tarballPath).readAsBytes();
     final gzipDecoded = GZipDecoder().decodeBytes(bytes);
     final archive = TarDecoder().decodeBytes(gzipDecoded);
+
+    // extractArchiveToDisk does not validate paths on its own. Reject
+    // any entry that would land outside `targetDir` (../etc/passwd) or
+    // that is a symbolic link — both can exfiltrate or hijack files
+    // outside the staging directory once chained with a hostile
+    // tarball.
+    final canonicalTarget = p.canonicalize(targetDir);
+    for (final file in archive) {
+      if (file.isSymbolicLink) {
+        throw StateError(
+          'refusing symlink entry in launcher tarball: ${file.name}',
+        );
+      }
+      final entryPath = p.canonicalize(p.join(canonicalTarget, file.name));
+      final inside = entryPath == canonicalTarget ||
+          entryPath.startsWith('$canonicalTarget${p.separator}');
+      if (!inside) {
+        throw StateError(
+          'refusing unsafe archive entry escaping target dir: '
+          '${file.name}',
+        );
+      }
+    }
+
     await extractArchiveToDisk(archive, targetDir);
   }
 

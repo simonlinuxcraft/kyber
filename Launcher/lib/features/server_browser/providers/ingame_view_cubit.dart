@@ -11,6 +11,7 @@ import 'package:kyber_launcher/injection_container.dart';
 import 'package:logging/logging.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:window_manager/window_manager.dart';
 
 class IngameViewCubit extends Cubit<IngameViewState> {
   IngameViewCubit() : super(const IngameViewState());
@@ -36,6 +37,26 @@ class IngameViewCubit extends Cubit<IngameViewState> {
 
     if (isClosed) {
       return;
+    }
+
+    // After BF2 exits the launcher window typically remains where the
+    // user last saw it (often minimised to the task bar because BF2 ran
+    // fullscreen and stole focus). Bring it back to the foreground so
+    // the user lands in the launcher, not on the desktop.
+    if (Platform.isLinux || Platform.isWindows) {
+      unawaited(_refocusLauncherWindow());
+    }
+  }
+
+  Future<void> _refocusLauncherWindow() async {
+    try {
+      if (await windowManager.isMinimized()) {
+        await windowManager.restore();
+      }
+      await windowManager.show();
+      await windowManager.focus();
+    } on Object catch (e, s) {
+      _logger.warning('Failed to refocus launcher window after game exit', e, s);
     }
   }
 

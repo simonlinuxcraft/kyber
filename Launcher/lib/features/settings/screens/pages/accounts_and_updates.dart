@@ -322,7 +322,7 @@ class AccountsAndUpdates extends StatelessWidget {
                               applicationLegalese:
                                   '© 2024 ArmchairDevelopers · © 2026 Kyber Linux Port contributors\n'
                                   'Licensed under GPL-3.0-only.\n'
-                                  'Source: https://github.com/simonlinuxcraft/kyber-linuxport-inofficial\n'
+                                  'Source: https://github.com/simonlinuxcraft/kyber-linuxport-unofficial\n'
                                   'Star Wars and Battlefront are trademarks of Lucasfilm Ltd.; this project is not affiliated with EA, DICE, or Lucasfilm.',
                               applicationName: 'KYBER Launcher (Linux Port)',
                               applicationVersion: snapshot.data?.version,

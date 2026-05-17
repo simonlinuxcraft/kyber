@@ -456,6 +456,37 @@ fn patch_system_reg_for_bf2(prefix: &str) {
         ],
     );
 
+    // EA Games\STAR WARS Battlefront II key — Maxima's is_installed() check
+    // looks here (via the install_check_override from the service layer) to
+    // confirm BF2 is installed. Fresh Steam-Proton prefixes don't get this
+    // key written automatically (the EA installer never runs), so we set it
+    // ourselves from the Steam-detected install dir. Without it, users get
+    // a "GAME NOT FOUND" dialog even though BF2 is fully installed via Steam.
+    if let Some(install_dir) = bf2_install_dir_for_wine() {
+        let keys: Vec<(&str, &str)> = vec![
+            ("DisplayName", "STAR WARS Battlefront II"),
+            ("Install Dir", install_dir.as_str()),
+            ("locale", "en_US"),
+        ];
+        patched = ensure_keys_in_section(
+            &patched,
+            r"Software\\EA Games\\STAR WARS Battlefront II",
+            &keys,
+        );
+        patched = ensure_keys_in_section(
+            &patched,
+            r"Software\\WoW6432Node\\EA Games\\STAR WARS Battlefront II",
+            &keys,
+        );
+    } else {
+        log::warn!(
+            "Skipping EA Games\\STAR WARS Battlefront II registry patch \
+             (BF2 install path could not be resolved from Steam). The \
+             launcher may show 'GAME NOT FOUND' until BF2 is installed \
+             via Steam-Proton."
+        );
+    }
+
     if patched == content {
         log::debug!("system.reg already in BF2-locale state - no write needed");
         return;
@@ -463,9 +494,34 @@ fn patch_system_reg_for_bf2(prefix: &str) {
     match std::fs::write(&path, patched) {
         Ok(_) => log::info!(
             "Wine system.reg patched: EA Desktop + Origin + Origin Games + \
-             WoW6432Node Origin Games sections"
+             WoW6432Node Origin Games + EA Games\\STAR WARS Battlefront II"
         ),
         Err(e) => log::warn!("Failed to write system.reg: {}", e),
+    }
+}
+
+// Returns the BF2 install dir as a Wine path (Z:/...) for the EA Games
+// registry section. Z: is the conventional Wine drive that maps to the
+// Linux host root, so we just prefix the Linux path. Returns None when
+// Steam metadata doesn't know where BF2 lives (BF2 not installed, or
+// Steam library at an unusual path the detection doesn't probe).
+// Values get overwritten on every launch to match current Steam metadata.
+fn bf2_install_dir_for_wine() -> Option<String> {
+    match maxima::util::registry::read_game_path("bf2") {
+        Ok(path) => {
+            let s = format!("Z:{}", path.to_string_lossy());
+            log::info!("BF2 install dir resolved for Wine registry: {}", s);
+            Some(s)
+        }
+        Err(e) => {
+            log::warn!(
+                "read_game_path(bf2) failed: {}. Skipping EA Games registry \
+                 patch. Set STEAM_LIBRARY_ROOT if BF2 lives outside the \
+                 default Steam libraries.",
+                e
+            );
+            None
+        }
     }
 }
 

@@ -161,7 +161,7 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 
 You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-Source code: https://github.com/simonlinuxcraft/kyber-linuxport-inofficial
+Source code: https://github.com/simonlinuxcraft/kyber-linuxport-unofficial
 
 Star Wars and Battlefront are trademarks of Lucasfilm Ltd.; this project is not affiliated with EA, DICE, or Lucasfilm.''',
         );

@@ -42,7 +42,7 @@ conveyance**, at no charge beyond the cost of physically performing
 the source distribution. This is a §6(b) written offer.
 
 **To request the source**, open an issue at
-<https://github.com/simonlinuxcraft/kyber-linuxport-inofficial/issues>
+<https://github.com/simonlinuxcraft/kyber-linuxport-unofficial/issues>
 with the title `wine-helper.exe source request` and include the
 release version (e.g. AppImage filename / git tag) you received
 the binary with. The maintainers will then either:

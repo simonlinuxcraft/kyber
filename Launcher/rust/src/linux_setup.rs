@@ -1,27 +1,9 @@
-//! Linux-only environment bootstrap.
-//!
-//! The primary fix for BF2's "wrong language" Origin error lives in
-//! `setup_wine_registry()` (sets `Locale=en_US` directly in the Wine prefix).
-//! This module is the second line of defence: it makes sure that other
-//! subprocesses spawned by the launcher (umu-run, the maxima-bootstrap, the
-//! Wine helper, the pressure-vessel container) actually find an
-//! `en_US.UTF-8` locale on disk when they invoke `setlocale()`.
-//!
-//! Strategy:
-//!   1. Probe `setlocale(LC_ALL, "en_US.UTF-8")` to see whether the locale
-//!      already exists (it does on most Ubuntu/Debian/Fedora desktops once
-//!      the user has enabled the `locales` / `glibc-langpack-en` package).
-//!   2. If it does NOT exist, try to compile it into a per-user directory
-//!      with `localedef --no-archive`. This needs the i18n source files
-//!      (`/usr/share/i18n/locales/en_US`) and the `localedef` binary; on
-//!      glibc-based distros both ship as part of the libc-bin/glibc-common
-//!      package and are present by default.
-//!   3. Export `LOCPATH` so that subprocess `setlocale()` calls can find
-//!      our generated locale. We deliberately do NOT touch the `LANG` or
-//!      `LC_ALL` of the launcher process: the user picked their UI
-//!      language and we should not silently flip the launcher to English.
-//!      The Wine subprocesses get `LC_ALL=en_US.UTF-8` from
-//!      `umu-wrapper.sh`, which combined with our `LOCPATH` is enough.
+// Linux env bootstrap. Mostly locale handling so BF2 doesn't bail with
+// the Origin language entitlement error on non-English hosts. The wine
+// registry side of that fix is in setup_wine_registry(); this file
+// generates an en_US.UTF-8 locale into ~/.local/share/kyber/locale if
+// the host doesn't already have one, then exposes it via LOCPATH for
+// subprocesses. Does not touch the launcher's own LANG/LC_ALL.
 
 #![cfg(target_os = "linux")]
 
@@ -32,22 +14,12 @@ use std::process::Command;
 const TARGET_LOCALE: &str = "en_US.UTF-8";
 const I18N_SOURCE: &str = "/usr/share/i18n/locales/en_US";
 
-/// BF2 Steam App ID — used to locate the Steam compatdata wine prefix.
 const BF2_STEAM_APP_ID: &str = "1237950";
 
-/// Ensure the critical Maxima → Steam-compatdata wine prefix symlink exists.
-/// Without this symlink Maxima creates its own empty wine prefix, missing all
-/// BF2 install state (Origin registry entries, EA Desktop user.ini, license
-/// cache, etc.) — game would fail to launch with an Origin/EA error.
-///
-/// The symlink also has to outlive any cleanup script the user might run,
-/// so we verify (and rebuild if needed) on every `init_app()`.
-///
-/// Located possible Steam library roots (in order):
-///   - $STEAM_LIBRARY_ROOT (manual override)
-///   - /mnt/Games/SteamLibrary  (current setup)
-///   - $HOME/.steam/steam
-///   - $HOME/.local/share/Steam
+// Maxima needs its wine prefix to be the BF2 Steam compatdata prefix
+// (otherwise Origin registry / EA desktop state is missing and BF2 bails
+// with an Origin error). We symlink ~/.local/share/maxima/wine/prefix to
+// it. Run on every init_app() because a cleanup script could remove it.
 pub fn ensure_critical_symlinks() {
     let home = match std::env::var("HOME") {
         Ok(h) => h,
@@ -113,7 +85,7 @@ pub fn ensure_critical_symlinks() {
                 }
             }
         } else {
-            // It's a regular dir/file — don't blindly clobber user data.
+            // It's a regular dir/file - don't blindly clobber user data.
             log::warn!(
                 "{} already exists and is not a symlink (looks like a real \
                  directory). Refusing to replace; please move it aside if you \
@@ -153,9 +125,8 @@ pub fn ensure_critical_symlinks() {
     }
 }
 
-/// Make sure a usable `en_US.UTF-8` locale is reachable to all child
-/// processes. Called from `init_app()` *before* any tokio runtime or other
-/// background thread is started, so the `unsafe { set_var }` is sound.
+// Make sure en_US.UTF-8 is reachable to subprocesses. Called from
+// init_app() before any tokio thread starts, so set_var is sound.
 pub fn ensure_en_us_utf8_locale() {
     if locale_already_works() {
         log::debug!("en_US.UTF-8 already available system-wide; nothing to do");
@@ -166,7 +137,7 @@ pub fn ensure_en_us_utf8_locale() {
         Some(d) => d,
         None => {
             log::warn!(
-                "Cannot determine $HOME — skipping en_US.UTF-8 generation. \
+                "Cannot determine $HOME - skipping en_US.UTF-8 generation. \
                  BF2 may fall back to the host locale."
             );
             return;
@@ -175,14 +146,12 @@ pub fn ensure_en_us_utf8_locale() {
 
     let locale_dir = target_dir.join(TARGET_LOCALE);
 
-    // We don't trust an existing locale_dir as proof of a finished
-    // generation: localedef may have been killed mid-write, leaving a
-    // partial LC_* file set. Re-running localedef is cheap (~100ms) and
-    // generate_user_locale() wipes the directory before each attempt,
-    // so we always (re)generate when the system probe failed.
+    // Always regenerate when the system probe fails. An existing
+    // locale_dir is not proof of completeness - localedef can be killed
+    // mid-write leaving a partial LC_* set.
     if !Path::new(I18N_SOURCE).exists() {
         log::warn!(
-            "{} missing — install the locale source package \
+            "{} missing - install the locale source package \
              (Ubuntu/Debian: `locales`, Fedora/RHEL: `glibc-langpack-en`, \
              Arch/openSUSE: already in `glibc`). Falling back to whatever \
              the host already exports.",
@@ -218,15 +187,9 @@ fn locale_already_works() -> bool {
         Err(_) => return false,
     };
 
-    // SAFETY: setlocale is process-global state. We are called from
-    // init_app() before any other thread is spawned, so no concurrent
-    // setlocale racing with us is possible.
-    //
-    // The probe has a side effect: passing a non-NULL locale name *changes*
-    // the process's C locale. We don't want that — the user picked their
-    // UI language and locale-sensitive C calls (Dart's intl, GTK number
-    // formatting) should keep that. So we capture the previous locale and
-    // restore it after the probe.
+    // SAFETY: setlocale is process-global. Called from init_app() before
+    // any thread is spawned, no racing possible. Capture + restore the
+    // previous locale because the probe itself changes process state.
     let previous_ptr = unsafe { libc::setlocale(libc::LC_ALL, std::ptr::null()) };
     let previous = if previous_ptr.is_null() {
         None
@@ -242,7 +205,7 @@ fn locale_already_works() -> bool {
     let works = !probe.is_null();
 
     if let Some(prev) = previous {
-        // Restore the original locale. This is best-effort — if it fails
+        // Restore the original locale. This is best-effort - if it fails
         // we accept the en_US.UTF-8 leak (the alternative is a broken
         // locale state, which is worse).
         unsafe { libc::setlocale(libc::LC_ALL, prev.as_ptr()) };
@@ -299,14 +262,9 @@ fn generate_user_locale(locale_dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Set all Steam / Wine env vars required for BF2 to launch correctly via the
-/// Launcher's in-process Maxima FFI. Called from `init_app()` before the
-/// Tokio runtime starts so `set_var()` is single-threaded and sound.
-///
-/// These vars are inherited by every child process (maxima-bootstrap, umu-run,
-/// pressure-vessel, Wine, BF2) because `Command` inherits the parent env.
-/// `MAXIMA_WINE_COMMAND` makes Maxima call `umu-wrapper.sh` instead of
-/// `umu-run` directly, which in turn handles the wine-helper.exe bypass.
+// Steam/Wine env vars BF2 needs to launch via the in-process Maxima
+// FFI. Subprocesses inherit these. Called from init_app() before tokio
+// starts, set_var is sound there.
 pub fn setup_steam_launch_env() {
     // SAFETY: called before any thread is spawned (init_app() precedes
     // setup_default_user_utils() which starts the Tokio threadpool).
@@ -323,25 +281,14 @@ pub fn setup_steam_launch_env() {
         std::env::set_var("SteamGameId", "1237950");
         std::env::set_var("STORE", "steam");
         std::env::set_var("PROTON_SET_GAME_DRIVE", "0");
-        // DXVK_ASYNC=1 is only set if the user hasn't overridden it. Lets
-        // launching with `env DXVK_ASYNC=0 …` bypass our default for testing
-        // (e.g. when the system pipeline cache was built in sync mode and
-        // mixing with async causes shader-recompile stutter / audio underruns
-        // during loading screens).
+        // var_os checks let users override per-launch via env.
         if std::env::var_os("DXVK_ASYNC").is_none() {
             std::env::set_var("DXVK_ASYNC", "1");
         }
 
-        // Audio buffer enlargement to suppress crackle during BF2 loading
-        // screens. Without these, PulseAudio buffer underruns when disk-IO
-        // spikes (asset streaming, mod loading) cause audible audio cutouts.
-        // Verified empirically 2026-05-07: 120 ms eliminates crackle without
-        // noticeable latency impact for game audio.
-        // PULSE_LATENCY_MSEC: PulseAudio host-side buffer (host pulseaudio).
-        // WINE_PULSE_LATENCY_MSEC: Wine's winepulse.drv internal buffer.
-        // STAGING_AUDIO_DURATION: wine-staging fallback (microseconds).
-        // var_os check lets users override per-launch via env if the default
-        // is wrong on their hardware.
+        // Larger pulse buffers stop audio crackle on BF2 loading screens
+        // when disk-IO spikes. 120 ms was enough on my box without
+        // noticeable latency impact.
         if std::env::var_os("PULSE_LATENCY_MSEC").is_none() {
             std::env::set_var("PULSE_LATENCY_MSEC", "120");
         }
@@ -390,30 +337,11 @@ pub fn patch_wine_locale_to_en_us() {
     patch_wine_registry_for_bf2();
 }
 
-/// Direct file-level patch of the entire BF2 locale-critical key set in
-/// the Wine prefix. Replaces the 15 sequential `reg add` calls in Maxima's
-/// `setup_wine_registry()` (each costs ~3s of pressure-vessel container
-/// spawn via umu-run) with two text-edit passes that take ~50ms total.
-///
-/// Strategy:
-/// - User.reg sections: `Control Panel\International`, `Software\Valve\Steam`,
-///   `Environment` — patched in-place.
-/// - System.reg sections: `Software\Electronic Arts\EA Desktop`,
-///   `Software\Origin`, `Software\Origin Games\1035052`,
-///   `Software\WoW6432Node\Origin Games\1035052` — patched in-place.
-/// - Each section: existing keys are replaced with the expected values;
-///   missing keys are appended within the section; missing sections are
-///   appended at the end of the file.
-/// - Skipped entirely when `wineserver` is currently running — Wine
-///   serialises the registry to disk on shutdown and would clobber our
-///   writes. The Maxima `setup_wine_registry()` umu-run path is the
-///   fallback in that case (and on a fresh prefix where the files do
-///   not exist yet).
-///
-/// After this runs, the in-Maxima `verify_locale_is_english()` pre-flight
-/// (the four critical keys via `reg query`) reports OK and
-/// `setup_wine_registry()` skips its 15-entry loop. Net cold-launch
-/// effect on a typical warm Wine prefix: ~45s saved.
+// Patches the BF2 locale-critical keys in user.reg + system.reg
+// directly. Replaces Maxima's 15 sequential `reg add` calls (each
+// ~3 s of pressure-vessel spawn via umu-run) with two text-edit
+// passes (~50 ms). Skipped when wineserver is running - Wine flushes
+// on shutdown and would clobber the writes.
 pub fn patch_wine_registry_for_bf2() {
     let home = match std::env::var("HOME") {
         Ok(h) => h,
@@ -478,7 +406,7 @@ fn patch_user_reg_for_bf2(prefix: &str) {
     );
 
     if patched == content {
-        log::debug!("user.reg already in BF2-locale state — no write needed");
+        log::debug!("user.reg already in BF2-locale state - no write needed");
         return;
     }
     match std::fs::write(&path, patched) {
@@ -529,7 +457,7 @@ fn patch_system_reg_for_bf2(prefix: &str) {
     );
 
     if patched == content {
-        log::debug!("system.reg already in BF2-locale state — no write needed");
+        log::debug!("system.reg already in BF2-locale state - no write needed");
         return;
     }
     match std::fs::write(&path, patched) {
@@ -571,7 +499,7 @@ fn ensure_keys_in_section(content: &str, section_path: &str, keys: &[(&str, &str
     }
 
     if section_start.is_none() {
-        // Section missing — append at end with all requested keys.
+        // Section missing - append at end with all requested keys.
         let mut result = content.to_string();
         if !result.ends_with('\n') {
             result.push('\n');
@@ -758,7 +686,7 @@ fn prepend_locpath(locpath_dir: &Path) {
         _ => dir_os.to_os_string(),
     };
 
-    // SAFETY: see locale_already_works() — single-threaded init context.
+    // SAFETY: see locale_already_works() - single-threaded init context.
     unsafe {
         std::env::set_var("LOCPATH", &combined);
     }

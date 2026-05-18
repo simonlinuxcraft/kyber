@@ -14,6 +14,7 @@ import 'package:kyber_launcher/features/kyber/dialogs/kyber_anti_virus_exclusion
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_expired_session_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_game_locator_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_game_not_found_dialog.dart';
+import 'package:kyber_launcher/features/maxima/dialogs/maxima_inject_failure_dialog.dart';
 import 'package:kyber_launcher/features/maxima/helper/maxima_helper.dart';
 import 'package:kyber_launcher/features/mods/helper/preloaded_mods_helper.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
@@ -179,6 +180,24 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                   context: navigatorKey.currentContext!,
                   builder: (_) => const MaximaExpiredSessionDialog(),
                 );
+                return;
+              } else if (error.message.contains('failed to run wine command') ||
+                  error.message.contains('Failed to inject Kyber') ||
+                  error.message.contains('Failed to find PID')) {
+                // FFI inject hit a wall — usually wine-helper not
+                // reaching the wineserver, the PID lookup failing, or
+                // a missing DLL import. Recovery dialog gives the user
+                // a retry + CLI option.
+                showKyberDialog(
+                  context: navigatorKey.currentContext!,
+                  builder: (_) => MaximaInjectFailureDialog(
+                    initializeRequest: widget.initializeRequest,
+                    gameDataPath: widget.gameDataDir,
+                    mods: widget.mods,
+                    errorMessage: error.message,
+                  ),
+                );
+                return;
               }
 
               NotificationService.showNotification(

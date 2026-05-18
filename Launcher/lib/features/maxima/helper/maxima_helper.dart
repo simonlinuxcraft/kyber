@@ -252,6 +252,15 @@ class MaximaHelper {
       if (e is AnyhowException) {
         _logger.severe('Failed to inject Kyber into game: ${e.message}');
       }
+      // Inject failed but BF2 is already running. Kill it so the
+      // recovery dialog has a clean slate when the user picks retry
+      // or CLI — otherwise we'd leave a zombie BF2 in the background.
+      try {
+        Process.killPid(gamePID);
+        _logger.info('Killed orphan BF2 PID $gamePID after inject failure');
+      } catch (killErr) {
+        _logger.warning('Could not kill BF2 PID $gamePID: $killErr');
+      }
       rethrow;
     }
 
@@ -261,11 +270,11 @@ class MaximaHelper {
     return instance;
   }
 
-  // On Linux the FFI launch path produces a language-entitlement error whose
-  // root cause is unknown. Delegating to kyber_cli runs the identical Maxima
-  // code in a fresh subprocess with an environment we fully control — this
-  // avoids any German locale state inherited from the Flutter process.
-  static Future<MaximaGameInstance> _startGameViaCli({
+  // CLI fallback. Only invoked from the recovery dialog when the FFI
+  // inject keeps failing — spawns kyber_cli as a fresh subprocess with
+  // its own environment. Helps on the odd distro combo where wine-helper
+  // can't see BF2's wineserver from inside the Flutter process.
+  static Future<MaximaGameInstance> startGameViaCli({
     required InitializeRequest initializeRequest,
     String? gamePath,
     List<FrostyMod>? mods,

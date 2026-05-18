@@ -728,6 +728,86 @@ pub fn patch_ea_user_language() {
     }
 }
 
+// Symlink vivoxsdk.dll into Wine's System32. Kyber.dll has a static
+// import on it, so without the link Wine's loader blows up with OS
+// error 126 and the inject panics. The module updater drops vivoxsdk
+// in ~/.local/share/kyber/module/ which isn't on Wine's search path,
+// so we just link it where the loader actually looks.
+//
+// Runs from start_game() (pre-launch), not init_app(). The module
+// updater only fetches the DLL after login, so it may not exist yet
+// when the app boots.
+pub fn ensure_vivoxsdk_in_wine_system32() {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let source = PathBuf::from(format!(
+        "{}/.local/share/kyber/module/vivoxsdk.dll",
+        home
+    ));
+    if !source.exists() {
+        log::debug!(
+            "vivoxsdk.dll not at {} yet (module updater hasn't run); \
+             skipping system32 symlink",
+            source.display()
+        );
+        return;
+    }
+
+    let system32 = PathBuf::from(format!(
+        "{}/.local/share/maxima/wine/prefix/drive_c/windows/system32",
+        home
+    ));
+    if !system32.exists() {
+        log::warn!(
+            "{} missing. Wine prefix not initialised, skipping vivoxsdk.dll \
+             symlink. Subsequent BF2 launch may fail to inject.",
+            system32.display()
+        );
+        return;
+    }
+
+    let target = system32.join("vivoxsdk.dll");
+
+    if let Ok(meta) = std::fs::symlink_metadata(&target) {
+        if meta.file_type().is_symlink() {
+            if let Ok(current) = std::fs::read_link(&target) {
+                if current == source {
+                    log::debug!("vivoxsdk.dll symlink already at {}", target.display());
+                    return;
+                }
+            }
+            if let Err(e) = std::fs::remove_file(&target) {
+                log::warn!("Failed to remove stale vivoxsdk.dll symlink: {}", e);
+                return;
+            }
+        } else {
+            // Real file already there. Probably a manual user copy or some
+            // earlier bootstrap dropped one. Don't clobber.
+            log::debug!(
+                "vivoxsdk.dll already at {} (not a symlink), leaving alone",
+                target.display()
+            );
+            return;
+        }
+    }
+
+    match std::os::unix::fs::symlink(&source, &target) {
+        Ok(()) => log::info!(
+            "vivoxsdk.dll symlink: {} -> {}",
+            target.display(),
+            source.display()
+        ),
+        Err(e) => log::warn!(
+            "Failed to symlink vivoxsdk.dll {} -> {}: {}",
+            target.display(),
+            source.display(),
+            e
+        ),
+    }
+}
+
 fn prepend_locpath(locpath_dir: &Path) {
     let dir_os = locpath_dir.as_os_str();
 

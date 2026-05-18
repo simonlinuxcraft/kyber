@@ -380,6 +380,8 @@ pub async fn start_game(
     crate::linux_setup::patch_wine_locale_to_en_us();
     #[cfg(target_os = "linux")]
     crate::linux_setup::patch_ea_user_language();
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::ensure_vivoxsdk_in_wine_system32();
 
     // TODO: re-enable cloud-saves (@headassbtw please fix)
     launch::start_game(maxima_arc.clone(), LaunchMode::Online(offer_id), LaunchOptions {

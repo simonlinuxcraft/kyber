@@ -53,33 +53,26 @@ export DXVK_ASYNC=1
 # this correctly using its own synchronization primitives.
 export WINEDLLOVERRIDES="msvcp140=b;${WINEDLLOVERRIDES}"
 
-# Intercept wine-helper.exe calls and run them directly using Proton's Wine
-# binary, bypassing umu-run's pressure-vessel container. Each umu-run
-# invocation creates an isolated container, so wine-helper.exe in its own
-# container cannot see the game's processes. By running Wine directly, we
-# connect to the existing wineserver (shared via WINEPREFIX on host FS).
+# MAXIMA-LINUX-PORT-MOD 2026-05-18: dropped the D-Bus container routing
+# for wine-helper.exe and just exec host wine64 directly. The original
+# wrapper (vendored 2026-05-05 from ACowAdonis kyber-bf2-linux V1.0.0)
+# tried to route wine-helper into BF2's pressure-vessel via
+# steam-runtime-launch-client --bus-name=com.steampowered.App[a-f0-9]+,
+# but that regex only matches hex AppIDs. BF2's bus name uses the
+# decimal AppID 1237950, so BF2_BUS was always empty and the wrapper
+# dropped to the host-namespace fallback anyway.
+#
+# Host wine64 talks to BF2's wineserver via the shared WINEPREFIX
+# socket no matter which pressure-vessel BF2 sits in, and the inject
+# itself goes through wineserver, so we don't need BF2's PID namespace.
 case "$1" in
   *wine-helper.exe)
-    # MAXIMA-LINUX-PORT-MOD: BF2 läuft in einem pressure-vessel-Container mit
-    # eigenem PID-Namespace. wine-helper.exe muss IM SELBEN Container laufen,
-    # sonst sieht OpenProcess(<Wine-PID>) den BF2-Prozess nicht und die DLL-
-    # Injection schlägt still fehl. Lokalisiere den laufenden Game-Container-
-    # Bus via steam-runtime-launch-client --list und führe wine-helper darin.
-    LAUNCH_CLIENT="$HOME/.local/share/umu/steamrt3/pressure-vessel/bin/steam-runtime-launch-client"
-    BF2_BUS=""
-    if [ -x "$LAUNCH_CLIENT" ]; then
-      BF2_BUS=$("$LAUNCH_CLIENT" --list 2>/dev/null | \
-        grep -E '^--bus-name=com\.steampowered\.App[a-f0-9]+$' | head -1 | \
-        sed 's|^--bus-name=||')
-    fi
-    if [ -n "$BF2_BUS" ]; then
-      echo "[umu-wrapper] routing wine-helper into container bus: $BF2_BUS" >&2
-      exec "$LAUNCH_CLIENT" --bus-name="$BF2_BUS" -- wine64 "$@"
-    fi
-    # Fallback: host namespace (OpenProcess auf Container-PIDs schlägt fehl)
-    echo "[umu-wrapper] WARN: no game container bus found, falling back to host wine64 (inject likely fails)" >&2
     PROTON_DIR="$HOME/.local/share/maxima/wine/proton"
     WINE_BIN="$PROTON_DIR/files/bin/wine64"
+    if [ ! -x "$WINE_BIN" ]; then
+      echo "[umu-wrapper] wine64 not found at $WINE_BIN — Maxima Proton may not be downloaded yet." >&2
+      exit 1
+    fi
     export WINEPREFIX="$HOME/.local/share/maxima/wine/prefix"
     export WINEDEBUG="fixme-all"
     export WINEFSYNC=1

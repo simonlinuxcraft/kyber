@@ -62,6 +62,16 @@ class General {
 
   set modsPath(String value) => box.put('modsPath', value);
 
+  // Manual BF2 executable path (full path to starwarsbattlefrontii.exe).
+  // Override for when Steam auto-detection misses the install (custom
+  // Steam root, external library). Null = automatic detection.
+  String? get customGamePath {
+    final value = box.get('customGamePath') as String?;
+    return (value != null && value.isNotEmpty) ? value : null;
+  }
+
+  set customGamePath(String? value) => box.put('customGamePath', value);
+
   String get proxy => box.get('proxy', defaultValue: '') as String;
 
   set proxy(String value) => box.put('proxy', value);

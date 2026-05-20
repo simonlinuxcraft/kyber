@@ -194,9 +194,20 @@ class MaximaHelper {
     final gameClient = ClientGRPCService('127.0.0.1', interfacePort);
     final gamePID = await maxima.startGame(
       gameSlug: gameSlug ?? 'star-wars-battlefront-2',
-      gamePathOverride: gamePath,
+      gamePathOverride: gamePath ?? Preferences.general.customGamePath,
     );
     _logger.info('Started game with PID: $gamePID');
+
+    // A PID of 0 means Maxima could not resolve the game process (the Wine
+    // PID lookup misses when umu re-execs as python3). Bail out before
+    // injectKyber/killPid: Process.killPid(0) signals the launcher's whole
+    // process group and would take the launcher down with it.
+    if (gamePID <= 0) {
+      _logger.severe(
+        'startGame returned invalid PID $gamePID, aborting launch',
+      );
+      throw const GamePidNotFoundException();
+    }
 
     if (sl.isRegistered<MaximaGameInstance>()) {
       _logger.warning(
@@ -204,7 +215,10 @@ class MaximaHelper {
       );
 
       try {
-        Process.killPid(sl.get<MaximaGameInstance>().pid);
+        final stalePid = sl.get<MaximaGameInstance>().pid;
+        if (stalePid > 0) {
+          Process.killPid(stalePid);
+        }
       } catch (_) {}
 
       sl.unregister<MaximaGameInstance>();
@@ -248,16 +262,26 @@ class MaximaHelper {
         pid: gamePID,
         path: p.join(FileHelper.getModuleDirectory().path, 'Kyber.dll'),
       );
+      // injectKyber returns after LoadLibrary, not after handshake.
+      try {
+        await sl.get<KyberGRPCServer>().waitForDllConnect();
+        _logger.info('DLL handshake ok');
+      } on TimeoutException {
+        _logger.severe('DLL handshake timed out');
+        throw const InjectHandshakeTimeoutException();
+      }
     } catch (e) {
       if (e is AnyhowException) {
         _logger.severe('Failed to inject Kyber into game: ${e.message}');
       }
       // Inject failed but BF2 is already running. Kill it so the
       // recovery dialog has a clean slate when the user picks retry
-      // or CLI — otherwise we'd leave a zombie BF2 in the background.
+      // or CLI, otherwise we would leave a zombie BF2 in the background.
       try {
-        Process.killPid(gamePID);
-        _logger.info('Killed orphan BF2 PID $gamePID after inject failure');
+        if (gamePID > 0) {
+          Process.killPid(gamePID);
+          _logger.info('Killed orphan BF2 PID $gamePID after inject failure');
+        }
       } catch (killErr) {
         _logger.warning('Could not kill BF2 PID $gamePID: $killErr');
       }
@@ -279,6 +303,7 @@ class MaximaHelper {
     String? gamePath,
     List<FrostyMod>? mods,
   }) async {
+    gamePath ??= Preferences.general.customGamePath;
     final bundleDir = p.dirname(Platform.resolvedExecutable);
     final cliDir = p.join(bundleDir, 'cli');
     final kyberCliPath = p.join(cliDir, 'kyber_cli');
@@ -374,7 +399,10 @@ class MaximaHelper {
       );
 
       if (sl.isRegistered<MaximaGameInstance>()) {
-        try { Process.killPid(sl.get<MaximaGameInstance>().pid); } catch (_) {}
+        try {
+          final stalePid = sl.get<MaximaGameInstance>().pid;
+          if (stalePid > 0) Process.killPid(stalePid);
+        } catch (_) {}
         sl.unregister<MaximaGameInstance>();
       }
 
@@ -388,4 +416,16 @@ class MaximaHelper {
     }
   }
 
+}
+
+class InjectHandshakeTimeoutException implements Exception {
+  const InjectHandshakeTimeoutException();
+  @override
+  String toString() => 'InjectHandshakeTimeoutException';
+}
+
+class GamePidNotFoundException implements Exception {
+  const GamePidNotFoundException();
+  @override
+  String toString() => 'Failed to find PID of the game process';
 }

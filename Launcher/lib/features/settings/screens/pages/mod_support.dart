@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber_launcher/core/core.dart';
+import 'package:kyber_launcher/core/services/app_settings.dart';
 import 'package:kyber_launcher/features/frosty/dialogs/frosty_import_dialog.dart';
+import 'package:kyber_launcher/features/maxima/dialogs/custom_game_path_dialog.dart';
 import 'package:kyber_launcher/features/mods/dialogs/move_directory_dialog.dart';
 import 'package:kyber_launcher/features/settings/screens/settings.dart';
 import 'package:kyber_launcher/main.dart';
@@ -17,7 +19,11 @@ class ModSupport extends StatelessWidget {
         const SettingsHeader(title: 'MODS'),
         HiveListener(
           box: box,
-          keys: ['enabledPreloadMods', 'incrementalDownloadsEnabled'],
+          keys: const [
+            'enabledPreloadMods',
+            'incrementalDownloadsEnabled',
+            'customGamePath',
+          ],
           builder: (_) => KyberTable(
             items: [
               KyberTableItem.button(
@@ -25,6 +31,16 @@ class ModSupport extends StatelessWidget {
                 text: 'New Directory',
                 onClick: () => showKyberDialog(
                   builder: (_) => const MoveModsDirectoryDialog(),
+                  context: context,
+                ),
+              ),
+              KyberTableItem.button(
+                title: 'Custom Game Path',
+                text: Preferences.general.customGamePath == null
+                    ? 'Set Path'
+                    : 'Change',
+                onClick: () => showKyberDialog(
+                  builder: (_) => const CustomGamePathDialog(),
                   context: context,
                 ),
               ),

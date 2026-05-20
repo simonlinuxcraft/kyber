@@ -152,6 +152,24 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
           })
           .onError((error, stackTrace) {
             _gameEvents?.cancel();
+            // PID lookup miss or DLL handshake timeout: route both into the
+            // recovery dialog (retry / CLI) instead of a dead-end toast.
+            if (error is InjectHandshakeTimeoutException ||
+                error is GamePidNotFoundException) {
+              if (mounted) {
+                Navigator.of(context).pop();
+              }
+              showKyberDialog(
+                context: navigatorKey.currentContext!,
+                builder: (_) => MaximaInjectFailureDialog(
+                  initializeRequest: widget.initializeRequest,
+                  gameDataPath: widget.gameDataDir,
+                  mods: widget.mods,
+                  errorMessage: error.toString(),
+                ),
+              );
+              return;
+            }
             if (error is AnyhowException) {
               if (mounted) {
                 Navigator.of(context).pop();

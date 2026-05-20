@@ -20,6 +20,8 @@ class IngameViewCubit extends Cubit<IngameViewState> {
   Timer? _keepAliveTimer;
 
   WebSocketChannel? _channel;
+  StreamSubscription<dynamic>? _subscription;
+  bool _loadingInFlight = false;
 
   @override
   Future<void> close() {
@@ -30,8 +32,12 @@ class IngameViewCubit extends Cubit<IngameViewState> {
   void unloadServer() {
     _logger.info('Unloading server');
 
+    unawaited(_subscription?.cancel());
+    _subscription = null;
     _channel?.sink.close();
+    _channel = null;
     _keepAliveTimer?.cancel();
+    _keepAliveTimer = null;
 
     emit(const IngameViewState());
 
@@ -70,10 +76,24 @@ class IngameViewCubit extends Cubit<IngameViewState> {
       return;
     }
 
-    await _channel?.sink.close();
-    _keepAliveTimer?.cancel();
+    // Guard against duplicate selectServer calls. KyberStatusPlaying can
+    // fire multiple times in quick succession (heartbeat, player-count
+    // update) which would make _channel.stream.listen() throw "Stream has
+    // already been listened to" on the second call and also triggers the
+    // "port = 0" / 403 follow-up symptom when two parallel WebSocket
+    // connects race the backend.
+    if (_loadingInFlight) {
+      _logger.warning('selectServer already in flight, skipping duplicate');
+      return;
+    }
+    _loadingInFlight = true;
 
     try {
+      await _subscription?.cancel();
+      _subscription = null;
+      await _channel?.sink.close();
+      _channel = null;
+      _keepAliveTimer?.cancel();
       final id = serverId ?? state.id;
       _logger.info('Loading server $id');
       emit(IngameViewState(id: id));
@@ -95,7 +115,7 @@ class IngameViewCubit extends Cubit<IngameViewState> {
 
       await _channel?.ready;
 
-      _channel?.stream.listen(
+      _subscription = _channel?.stream.listen(
         (event) {
           try {
             final data = ServerManagementAPIEvent.fromBuffer(
@@ -172,6 +192,8 @@ class IngameViewCubit extends Cubit<IngameViewState> {
         severity: InfoBarSeverity.error,
       );
       unloadServer();
+    } finally {
+      _loadingInFlight = false;
     }
   }
 }

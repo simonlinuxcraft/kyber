@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:grpc/grpc.dart';
 import 'package:kyber/gen/Proto/kyber_interface.pbgrpc.dart'
@@ -14,6 +16,7 @@ import 'package:logging/logging.dart';
 class LauncherService extends LauncherCommonServiceBase {
   @override
   Future<InitializeRequest> initialize(ServiceCall _, Empty __) {
+    sl.get<KyberGRPCServer>().signalDllConnected();
     return Future.value(sl.get<KyberGRPCServer>().getInitializeRequest());
   }
 
@@ -75,6 +78,8 @@ class KyberGRPCServer {
   Server? _server;
   InitializeRequest? _initializeRequest;
 
+  Completer<void> _dllConnected = Completer<void>();
+
   InitializeRequest getInitializeRequest() {
     final request = _initializeRequest;
     if (request == null) {
@@ -86,6 +91,31 @@ class KyberGRPCServer {
 
   void setInitializeRequest(InitializeRequest request) {
     _initializeRequest = request;
+    _dllConnected = Completer<void>();
+  }
+
+  void signalDllConnected() {
+    if (!_dllConnected.isCompleted) {
+      _dllConnected.complete();
+    }
+  }
+
+  Future<void> waitForDllConnect({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    // Pin the completer: setInitializeRequest() can swap _dllConnected for a
+    // fresh one, and the grace path below must keep waiting on the same one.
+    final completer = _dllConnected;
+    try {
+      await completer.future.timeout(timeout);
+    } on TimeoutException {
+      // The DLL can connect right as the timeout fires. signalDllConnected()
+      // runs from an incoming gRPC call, dispatched a loop tick after the
+      // timeout error, so give it a short grace window before reporting a
+      // failed handshake.
+      if (completer.isCompleted) return;
+      await completer.future.timeout(const Duration(seconds: 2));
+    }
   }
 
   Future<void> start() async {

@@ -10,6 +10,7 @@ import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/kyber/providers/kyber_proxy_cubit.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_start_game_dialog.dart';
 import 'package:kyber_launcher/features/maxima/models/maxima_game_instance.dart';
+import 'package:kyber_launcher/features/maxima/services/maxima_instance_service.dart';
 import 'package:kyber_launcher/features/mod_collections/providers/mod_collection_cubit.dart';
 import 'package:kyber_launcher/features/mods/extensions/frosty_collection_extension.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
@@ -134,6 +135,34 @@ class KyberServerHelper {
       }
     } on GrpcError catch (e) {
       _logger.severe('Failed to join server: ${e.message}', e);
+
+      // If the DLL-gRPC port refused our connection, the previously
+      // injected Kyber.dll is gone (BF2 was closed or crashed) but the
+      // launcher still holds the MaximaGameInstance reference. Remove it
+      // so the next Play click goes through the fresh-game dialog
+      // instead of repeatedly pinging a dead port.
+      if (e.code == StatusCode.unavailable &&
+          sl.isRegistered<MaximaGameInstance>()) {
+        _logger.warning(
+          'Game gRPC unreachable, removing stale MaximaGameInstance',
+        );
+        try {
+          final stale = sl.get<MaximaGameInstance>();
+          await sl.get<MaximaInstanceService>().removeInstance(stale);
+        } on Object catch (cleanupErr, cleanupStack) {
+          _logger.warning(
+            'Failed to clean up stale instance',
+            cleanupErr,
+            cleanupStack,
+          );
+        }
+        NotificationService.error(
+          message:
+              'Game session was lost. Please start the game again.',
+        );
+        return;
+      }
+
       NotificationService.error(
         message: 'Failed to join server: ${e.message}',
       );

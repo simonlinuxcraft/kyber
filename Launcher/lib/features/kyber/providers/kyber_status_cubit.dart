@@ -23,41 +23,55 @@ class KyberStatusCubit extends Cubit<KyberStatusState> {
         return;
       }
 
-      final state = await sl
-          .get<MaximaGameInstance>()
-          .clientService
-          .commonClient
-          .getInfo(Empty());
-      if (!state.hasServer() && !state.client.hasServerId()) {
-        sl.get<RichPresence>().clearPresence();
-        return;
-      }
+      try {
+        final info = await sl
+            .get<MaximaGameInstance>()
+            .clientService
+            .commonClient
+            .getInfo(Empty());
+        if (!info.hasServer() && !info.client.hasServerId()) {
+          sl.get<RichPresence>().clearPresence();
+          return;
+        }
 
-      final id = state.hasServer() ? state.server.id : state.client.serverId;
-      final client = sl.get<KyberGRPCService>();
-      final server = await client.serverBrowserClient.getServer(
-        ServerRequest(id: id),
-      );
-      if (state is KyberStatusHosting) {
-        emit(
-          KyberStatusHosting(
-            serverState: (state as KyberStatusHosting).serverState,
-            server: server,
-          ),
+        final id = info.hasServer() ? info.server.id : info.client.serverId;
+        final client = sl.get<KyberGRPCService>();
+        final server = await client.serverBrowserClient.getServer(
+          ServerRequest(id: id),
         );
-      } else if (state is KyberStatusPlaying) {
-        emit(
-          KyberStatusPlaying(
-            serverState: (state as KyberStatusPlaying).serverState,
-            server: server,
-            joined: joined,
-          ),
-        );
-      } else {
-        emit(KyberStatusNormal());
-      }
 
-      sl.get<RichPresence>().updatePresenceKyber(state, server);
+        // Test the cubit state, not the getInfo proto: the old local var
+        // was named `state`, so these checks always missed and the timer
+        // dropped a live session to KyberStatusNormal every 2 minutes.
+        final current = state;
+        if (current is KyberStatusHosting) {
+          emit(
+            KyberStatusHosting(
+              serverState: current.serverState,
+              server: server,
+            ),
+          );
+        } else if (current is KyberStatusPlaying) {
+          emit(
+            KyberStatusPlaying(
+              serverState: current.serverState,
+              server: server,
+              joined: joined,
+            ),
+          );
+        }
+
+        sl.get<RichPresence>().updatePresenceKyber(info, server);
+      } catch (e) {
+        // Stay resilient: a rethrow would escape as an uncaught async
+        // exception in the Timer callback. The 1-second onTick timer owns
+        // the real state, this one only refreshes server metadata.
+        if (e is GrpcError && e.code == StatusCode.unavailable) {
+          _logger.severe('Kyber gRPC server is unavailable...');
+          return;
+        }
+        _logger.severe('rpc server refresh failed', e);
+      }
     });
   }
 

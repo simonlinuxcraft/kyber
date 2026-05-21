@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:kyber/gen/Proto/kyber_common.pb.dart';
 import 'package:kyber/gen/Proto/kyber_interface.pb.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
 import 'package:kyber_launcher/core/services/vivox_sdk_service.dart';
@@ -17,6 +18,10 @@ class VoipService with ChangeNotifier {
   late List<VoipDevice> _outputDevices;
   String _selectedInputDevice = '';
   String _selectedOutputDevice = '';
+
+  // Stops the per-tick Linux device fetch once the GetVoipSettings RPC throws
+  // (e.g. not implemented, or the game disconnecting). Reset per game.
+  bool _deviceFetchGaveUp = false;
 
   bool get isEnabled => _isEnabled;
 
@@ -52,6 +57,7 @@ class VoipService with ChangeNotifier {
   void clearDevices() {
     _inputDevices = [];
     _outputDevices = [];
+    _deviceFetchGaveUp = false;
     notifyListeners();
   }
 
@@ -137,6 +143,28 @@ class VoipService with ChangeNotifier {
       ),
     );
     client.voipSettings = VoipSettings();
+  }
+
+  /// Linux has no native Vivox SDK, so the launcher process cannot enumerate
+  /// audio devices itself. The running game (Vivox inside Wine) knows them and
+  /// exposes them over the existing GetVoipSettings RPC. Called per tick while
+  /// the device lists are empty; stops on the first RPC error.
+  Future<void> fetchGameVoipDevices() async {
+    if (_deviceFetchGaveUp || !sl.isRegistered<MaximaGameInstance>()) {
+      return;
+    }
+    try {
+      final client = sl.get<MaximaGameInstance>();
+      final settings =
+          await client.clientService.client.getVoipSettings(Empty());
+      final input = settings.inputDevices.toList();
+      final output = settings.outputDevices.toList();
+      if (input.isNotEmpty) await setInputDevices(input);
+      if (output.isNotEmpty) await setOutputDevices(output);
+    } catch (e) {
+      _deviceFetchGaveUp = true;
+      _logger.fine('getVoipSettings failed, stopping device fetch: $e');
+    }
   }
 
   Future<void> setInputDevice(String id) async {

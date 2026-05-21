@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
@@ -99,8 +101,10 @@ class ProximityChat extends StatelessWidget {
                   title: 'Input Device',
                   items: service.inputDevices.isEmpty
                       ? [
-                          const KyberSelectorItem(
-                            title: 'No devices found',
+                          KyberSelectorItem(
+                            title: Platform.isLinux
+                                ? 'Start a game to list devices'
+                                : 'No devices found',
                             value: '',
                           ),
                         ]
@@ -125,8 +129,10 @@ class ProximityChat extends StatelessWidget {
                   title: 'Output Device',
                   items: service.outputDevices.isEmpty
                       ? [
-                          const KyberSelectorItem(
-                            title: 'No devices found',
+                          KyberSelectorItem(
+                            title: Platform.isLinux
+                                ? 'Start a game to list devices'
+                                : 'No devices found',
                             value: '',
                           ),
                         ]

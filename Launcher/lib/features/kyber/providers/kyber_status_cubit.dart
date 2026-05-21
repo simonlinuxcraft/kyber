@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:grpc/grpc.dart' hide Server;
@@ -91,8 +92,16 @@ class KyberStatusCubit extends Cubit<KyberStatusState> {
     try {
       final client = sl.get<MaximaGameInstance>();
       final data = await client.clientService.commonClient.getInfo(Empty());
+      final voip = sl.get<VoipService>();
       if (data.vivoxInitialized && client.voipSettings == null) {
-        sl.get<VoipService>().setGameVoipSettings();
+        voip.setGameVoipSettings();
+      }
+      // Linux has no native Vivox; pull the device list from the running
+      // game while the launcher's lists are still empty.
+      if (Platform.isLinux &&
+          data.vivoxInitialized &&
+          voip.inputDevices.isEmpty) {
+        voip.fetchGameVoipDevices();
       }
 
       final isKyber = data.hasClient() || data.hasServer();

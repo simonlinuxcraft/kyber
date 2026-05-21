@@ -63,8 +63,9 @@ class VoipService with ChangeNotifier {
   }
 
   Future<void> setPushToTalkKey({required VoipKeyResponse key}) async {
-    _pushToTalkKey = key.keyId;
-    Preferences.general.pushToTalkKey = key.keyId;
+    final keyId = sanitizePushToTalkKey(key.keyId);
+    _pushToTalkKey = keyId;
+    Preferences.general.pushToTalkKey = keyId;
     Preferences.general.pushToTalkKeyDisplay = key.display;
     notifyListeners();
     await setGameVoipSettings();
@@ -132,7 +133,7 @@ class VoipService with ChangeNotifier {
         inputDeviceId: _selectedInputDevice.trim(),
         outputDeviceId: _selectedOutputDevice.trim(),
         pushToTalkEnabled: _isPushToTalkEnabled,
-        pushToTalkKey: _pushToTalkKey,
+        pushToTalkKey: sanitizePushToTalkKey(_pushToTalkKey),
       ),
     );
     client.voipSettings = VoipSettings();

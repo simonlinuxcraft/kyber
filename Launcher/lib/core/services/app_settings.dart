@@ -5,6 +5,20 @@ import 'package:kyber_launcher/main.dart';
 
 //final box = box;
 
+/// Largest value that fits a protobuf int32 field.
+const int kMaxInt32 = 0x7FFFFFFF;
+
+/// The push-to-talk keycode is sent over an int32 proto field. Flutter's
+/// `LogicalKeyboardKey.keyId` for non-printable keys lives on a high plane and
+/// exceeds int32, which would crash `SetVoipSettingsRequest`. Fall back to the
+/// platform default ('T') when a stored value is out of range.
+int sanitizePushToTalkKey(int value) {
+  if (value < 0 || value > kMaxInt32) {
+    return Platform.isWindows ? 0x54 : 116;
+  }
+  return value;
+}
+
 class Preferences {
   static final general = General();
   static final debug = Debug();
@@ -131,12 +145,13 @@ class General {
       box.put('pushToTalkKeybindDisplay', value);
 
   // 116 -> T
-  int get pushToTalkKey =>
-      box.get(
-            'pushToTalkKeybind',
-            defaultValue: Platform.isWindows ? 0x54 : 116,
-          )
-          as int;
+  int get pushToTalkKey => sanitizePushToTalkKey(
+    box.get(
+          'pushToTalkKeybind',
+          defaultValue: Platform.isWindows ? 0x54 : 116,
+        )
+        as int,
+  );
 
   set pushToTalkKey(int value) => box.put('pushToTalkKeybind', value);
 

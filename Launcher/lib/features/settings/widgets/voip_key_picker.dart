@@ -6,6 +6,10 @@ import 'package:kyber_launcher/core/config/colors.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/shared/ui/ui.dart';
 
+// Push-to-talk keycodes go over an int32 proto field. Non-printable keys have
+// a LogicalKeyboardKey.keyId above this limit and cannot be used.
+const int _kMaxInt32 = 0x7FFFFFFF;
+
 class VoipKeyResponse {
   VoipKeyResponse({
     required this.display,
@@ -33,6 +37,7 @@ class CharKeyPicker extends StatefulWidget {
 class _CharKeyPickerState extends State<CharKeyPicker> {
   final FocusNode _focusNode = FocusNode();
   bool _recording = false;
+  String? _hint;
 
   @override
   void initState() {
@@ -49,12 +54,18 @@ class _CharKeyPickerState extends State<CharKeyPicker> {
   }
 
   void _startRecording() {
-    setState(() => _recording = true);
+    setState(() {
+      _recording = true;
+      _hint = null;
+    });
     _focusNode.requestFocus();
   }
 
   void _stopRecording() {
-    setState(() => _recording = false);
+    setState(() {
+      _recording = false;
+      _hint = null;
+    });
     _focusNode.unfocus();
   }
 
@@ -64,6 +75,11 @@ class _CharKeyPickerState extends State<CharKeyPicker> {
 
     if (e.logicalKey == LogicalKeyboardKey.escape) {
       _stopRecording();
+      return KeyEventResult.handled;
+    }
+
+    if (e.logicalKey.keyId > _kMaxInt32) {
+      setState(() => _hint = 'Key not supported, try another');
       return KeyEventResult.handled;
     }
 
@@ -100,6 +116,11 @@ class _CharKeyPickerState extends State<CharKeyPicker> {
       return;
     }
 
+    if (e.logicalKey.keyId > _kMaxInt32) {
+      setState(() => _hint = 'Key not supported, try another');
+      return;
+    }
+
     widget.onChanged(
       VoipKeyResponse(
         display: e.logicalKey.keyLabel,
@@ -112,7 +133,7 @@ class _CharKeyPickerState extends State<CharKeyPicker> {
   @override
   Widget build(BuildContext context) {
     final display = _recording
-        ? 'Press a key…'
+        ? (_hint ?? 'Press a key…')
         : (widget.value != null ? widget.value!.display : 'Unassigned');
 
     final child = GestureDetector(

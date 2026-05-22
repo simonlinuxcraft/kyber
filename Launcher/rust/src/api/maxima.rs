@@ -75,6 +75,12 @@ pub async fn inject_kyber(pid: u32, path: String) -> anyhow::Result<()> {
 #[cfg(not(windows))]
 pub async fn inject_kyber(pid: u32, path: String) -> anyhow::Result<()> {
     use maxima::core::background_service::request_library_injection;
+    // On a fresh install the Wine prefix does not exist yet when start_game()
+    // runs its pre-launch vivoxsdk symlink, so that call no-ops. BF2 is running
+    // by the time we inject, so re-run it here: without the vivoxsdk.dll link
+    // the Wine loader fails Kyber.dll with OS error 126 (module not found).
+    #[cfg(target_os = "linux")]
+    crate::linux_setup::ensure_vivoxsdk_in_wine_system32();
     // path arrives as a Linux absolute path (e.g. /home/…/module/Kyber.dll).
     // wine-helper.exe runs inside Wine where the Unix root is exposed as Z:\.
     let wine_path = if path.starts_with('/') {

@@ -670,7 +670,7 @@ pub fn patch_ea_user_language() {
         Err(_) => return,
     };
     let ea_dir = format!(
-        "{}/.local/share/maxima/wine/prefix/pfx/drive_c/users/steamuser\
+        "{}/.local/share/maxima/wine/prefix/drive_c/users/steamuser\
          /AppData/Local/Electronic Arts/EA Desktop",
         home
     );

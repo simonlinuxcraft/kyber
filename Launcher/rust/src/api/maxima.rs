@@ -359,7 +359,8 @@ pub async fn start_game(
         }
 
         let game = game.unwrap();
-        if !game.is_installed().await {
+        // skip the install check when the user set an explicit path override
+        if game_path_override.is_none() && !game.is_installed().await {
             bail!("Game not installed");
         }
 

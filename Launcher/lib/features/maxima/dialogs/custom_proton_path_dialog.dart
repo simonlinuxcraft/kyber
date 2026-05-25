@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber_launcher/core/config/colors.dart';
+import 'package:kyber_launcher/core/services/app_settings.dart';
 import 'package:kyber_launcher/gen/rust/api/maxima.dart';
 import 'package:kyber_launcher/shared/ui/buttons/button.dart';
 import 'package:kyber_launcher/shared/ui/dialog/kyber_dialog.dart';
@@ -310,6 +311,19 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
             },
           ),
         if (isLinux)
+          Tooltip(
+            message:
+                "Deletes BF2's compiled shader cache (vkd3d-proton.cache). "
+                'Use after switching Proton versions if you see graphical '
+                'artifacts (yellow streaks, flickering shadows). Auto-runs '
+                'on Save when the Proton path changes. Run manually if you '
+                'use a Custom Game Path.',
+            child: KyberButton(
+              text: 'Clear shader cache',
+              onPressed: () => _confirmAndClearCache(context),
+            ),
+          ),
+        if (isLinux)
           KyberButton(
             text: 'Save',
             onPressed: () {
@@ -342,6 +356,96 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
         title: const Text('Custom Proton'),
         content: Text(message),
         severity: InfoBarSeverity.error,
+        action: IconButton(
+          icon: const Icon(FluentIcons.clear),
+          onPressed: close,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmAndClearCache(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => KyberContentDialog(
+        constraints: const BoxConstraints(maxWidth: 540),
+        title: Text('Clear shader cache'.toUpperCase()),
+        content: Text(
+          'This deletes vkd3d-proton.cache from your BF2 install '
+          'directory. The cache will be rebuilt the next time you '
+          'launch BF2; expect a few seconds of stutter during the '
+          'first match while shaders recompile.\n\n'
+          'Run this after switching Proton versions if you see yellow '
+          'streaks or flickering shadows. BF2 must not be running.',
+          style: FluentTheme.of(dialogContext)
+              .typography
+              .body
+              ?.copyWith(color: kWhiteColor),
+        ),
+        actions: [
+          KyberButton(
+            text: 'Cancel',
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+          ),
+          KyberButton(
+            text: 'Delete cache',
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+
+    try {
+      final result = clearBf2ShaderCache(
+        gameExePathOverride: Preferences.general.customGamePath,
+      );
+      if (!context.mounted) return;
+      _showShaderCacheResult(context, result);
+    } catch (e) {
+      if (!context.mounted) return;
+      _showError(context, 'Failed to clear shader cache: $e');
+    }
+  }
+
+  void _showShaderCacheResult(
+    BuildContext context,
+    ShaderCacheClearResult result,
+  ) {
+    final InfoBarSeverity severity;
+    final String message;
+    switch (result.reason) {
+      case 'removed':
+        final mb = result.bytesFreed.toDouble() / (1024 * 1024);
+        severity = InfoBarSeverity.success;
+        message = 'Shader cache cleared (${mb.toStringAsFixed(1)} MB freed).';
+      case 'not_present':
+        severity = InfoBarSeverity.info;
+        message = 'No shader cache to clear, already absent.';
+      case 'bf2_not_installed':
+        severity = InfoBarSeverity.warning;
+        message =
+            'Could not locate BF2 install. Set a Custom Game Path in '
+            'Mod Configuration, then try again.';
+      case 'bf2_running':
+        severity = InfoBarSeverity.warning;
+        message = 'BF2 is running, close it first.';
+      case 'permission_denied':
+        severity = InfoBarSeverity.error;
+        message =
+            'Permission denied while deleting the shader cache at '
+            '${result.path ?? "?"}.';
+      default:
+        severity = InfoBarSeverity.error;
+        message = 'Shader cache clear failed: ${result.reason}';
+    }
+    displayInfoBar(
+      context,
+      builder: (_, close) => InfoBar(
+        title: const Text('Shader cache'),
+        content: Text(message),
+        severity: severity,
         action: IconButton(
           icon: const Icon(FluentIcons.clear),
           onPressed: close,

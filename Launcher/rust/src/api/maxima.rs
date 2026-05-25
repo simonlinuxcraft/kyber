@@ -693,6 +693,23 @@ pub struct ProtonCandidate {
     pub in_home: bool,
 }
 
+/// Result of a BF2 VKD3D shader cache clear attempt. `reason` is a stable
+/// machine-readable tag the UI maps to a localised InfoBar message.
+pub struct ShaderCacheClearResult {
+    pub removed: bool,
+    pub bytes_freed: u64,
+    pub path: Option<String>,
+    /// One of: "removed", "not_present", "bf2_not_installed",
+    /// "bf2_running", "permission_denied".
+    pub reason: String,
+}
+
+/// Single file we manage. BF2 is DX12, so VKD3D-Proton owns its pipeline
+/// cache here; there is no DXVK cache to worry about. Steam's wineprefix
+/// shadercache/ stays untouched.
+#[cfg(target_os = "linux")]
+const BF2_VKD3D_CACHE_FILENAME: &str = "vkd3d-proton.cache";
+
 #[cfg(target_os = "linux")]
 fn sidecar_path() -> anyhow::Result<std::path::PathBuf> {
     Ok(maxima_dir()?.join("custom_proton_path"))
@@ -797,7 +814,15 @@ pub fn set_custom_proton_path(path: Option<String>) -> Result<(), String> {
         .ok_or_else(|| "sidecar has no parent dir".to_string())?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
 
-    match path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    // MAXIMA-LINUX-PORT-MOD 2026-05-25: BF2 shader cache invalidation on
+    // Proton switch. Read the sidecar value before we overwrite it so we
+    // can fire the cache purge only when the effective Proton path
+    // actually changes (a no-op Save with the same value must not nuke
+    // the cache). Normalised to trimmed-or-None for comparison.
+    let old_value = read_sidecar_trimmed(&sidecar);
+    let new_value = path.as_deref().map(str::trim).filter(|s| !s.is_empty());
+
+    match new_value {
         Some(p) => {
             let tmp = sidecar.with_extension("tmp");
             std::fs::write(&tmp, p).map_err(|e| e.to_string())?;
@@ -806,6 +831,17 @@ pub fn set_custom_proton_path(path: Option<String>) -> Result<(), String> {
         None => {
             let _ = std::fs::remove_file(&sidecar);
         }
+    }
+
+    let proton_path_changed = old_value.as_deref() != new_value;
+    if proton_path_changed {
+        // Best-effort: failure here does not propagate so the dialog
+        // always reports its real Save outcome. Custom-game-path users
+        // see the skip in the log and have the Clear button as the
+        // escape hatch (tooltip points at it).
+        purge_bf2_shader_cache_if_changed();
+    } else {
+        debug!("proton path unchanged, skipping shader cache purge");
     }
 
     // MAXIMA-LINUX-PORT-MOD 2026-05-26: reconcile wine/proton routing
@@ -954,6 +990,216 @@ pub async fn scan_known_proton_locations() -> Vec<ProtonCandidate> {
 #[cfg(not(target_os = "linux"))]
 pub async fn scan_known_proton_locations() -> Vec<ProtonCandidate> {
     Vec::new()
+}
+
+// MAXIMA-LINUX-PORT-MOD 2026-05-25: BF2 shader cache invalidation on Proton
+// switch. Set of helpers + one FFI entry for the dialog's manual Clear
+// button. The auto-purge path is internal (called by set_custom_proton_path
+// on diff) and has no access to the Dart-side customGamePath override, so
+// it can only resolve via the Steam registry. The manual FFI accepts an
+// override and forwards it to the resolver.
+
+#[cfg(target_os = "linux")]
+fn read_sidecar_trimmed(sidecar: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(sidecar).ok()?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Resolve the BF2 install directory. First honours the UI override (full
+/// path to starwarsbattlefrontii.exe per the dialog contract, parented to
+/// the install dir), else falls back to Maxima's Steam-libraryfolders.vdf
+/// scanner, else returns None. None is not an error; the caller decides
+/// whether to silently skip (auto path) or surface a warning (manual path).
+#[cfg(target_os = "linux")]
+fn resolve_bf2_install_dir(override_exe_path: Option<&str>) -> Option<std::path::PathBuf> {
+    if let Some(raw) = override_exe_path {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let exe = std::path::PathBuf::from(trimmed);
+            let has_exe_suffix = exe
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("exe"))
+                .unwrap_or(false);
+            if has_exe_suffix {
+                if let Some(parent) = exe.parent() {
+                    if parent.is_dir() {
+                        return Some(parent.to_path_buf());
+                    } else {
+                        warn!(
+                            "Custom game-path override parent is not a directory: {}",
+                            parent.display()
+                        );
+                    }
+                }
+            } else {
+                warn!(
+                    "Custom game-path override is not a .exe path: {}",
+                    trimmed
+                );
+            }
+        }
+    }
+    match read_game_path("bf2") {
+        Ok(p) => Some(p),
+        Err(e) => {
+            warn!("BF2 install dir not discoverable via Steam registry: {}", e);
+            None
+        }
+    }
+}
+
+/// Best-effort process check. BF2's exe `starwarsbattlefrontii.exe` maps to
+/// Linux `comm` "starwarsbattlefron" (15-char kernel truncation). We scan
+/// /proc/<pid>/comm to avoid hard-depending on pgrep being on PATH inside
+/// the AppImage runtime.
+#[cfg(target_os = "linux")]
+fn is_bf2_running() -> bool {
+    let entries = match std::fs::read_dir("/proc") {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = match name.to_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if !name_str.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let comm_path = entry.path().join("comm");
+        if let Ok(comm) = std::fs::read_to_string(&comm_path) {
+            if comm.trim() == "starwarsbattlefron" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn purge_shader_cache_impl(
+    override_exe_path: Option<&str>,
+) -> ShaderCacheClearResult {
+    let install_dir = match resolve_bf2_install_dir(override_exe_path) {
+        Some(d) => d,
+        None => {
+            return ShaderCacheClearResult {
+                removed: false,
+                bytes_freed: 0,
+                path: None,
+                reason: "bf2_not_installed".to_string(),
+            };
+        }
+    };
+    let cache_path = install_dir.join(BF2_VKD3D_CACHE_FILENAME);
+    let cache_path_string = cache_path.to_string_lossy().to_string();
+
+    if is_bf2_running() {
+        return ShaderCacheClearResult {
+            removed: false,
+            bytes_freed: 0,
+            path: Some(cache_path_string),
+            reason: "bf2_running".to_string(),
+        };
+    }
+
+    let bytes = std::fs::metadata(&cache_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    match std::fs::remove_file(&cache_path) {
+        Ok(()) => ShaderCacheClearResult {
+            removed: true,
+            bytes_freed: bytes,
+            path: Some(cache_path_string),
+            reason: "removed".to_string(),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => ShaderCacheClearResult {
+            removed: false,
+            bytes_freed: 0,
+            path: Some(cache_path_string),
+            reason: "not_present".to_string(),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            ShaderCacheClearResult {
+                removed: false,
+                bytes_freed: 0,
+                path: Some(cache_path_string),
+                reason: "permission_denied".to_string(),
+            }
+        }
+        Err(e) => ShaderCacheClearResult {
+            removed: false,
+            bytes_freed: 0,
+            path: Some(cache_path_string),
+            reason: format!("io_error: {}", e),
+        },
+    }
+}
+
+/// Auto-purge entry. Called only when set_custom_proton_path detected a
+/// genuine path change. Errors are logged and swallowed so the Proton
+/// switch itself reports its own outcome cleanly.
+#[cfg(target_os = "linux")]
+fn purge_bf2_shader_cache_if_changed() {
+    let result = purge_shader_cache_impl(None);
+    match result.reason.as_str() {
+        "removed" => info!(
+            "BF2 shader cache purged after proton switch: {} bytes ({})",
+            result.bytes_freed,
+            result.path.as_deref().unwrap_or("?")
+        ),
+        "not_present" => debug!("BF2 shader cache absent, nothing to purge after proton switch"),
+        other => warn!(
+            "BF2 shader cache purge skipped: {}. Use Clear shader cache button if you have a custom game path.",
+            other
+        ),
+    }
+}
+
+/// Manual-Clear FFI invoked by the Custom Proton dialog. Accepts the
+/// Dart-side customGamePath override so users with BF2 outside the Steam
+/// registry can still clear. Returns the structured result; the dialog
+/// maps `reason` to an InfoBar.
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(target_os = "linux")]
+pub fn clear_bf2_shader_cache(
+    game_exe_path_override: Option<String>,
+) -> Result<ShaderCacheClearResult, String> {
+    let override_ref = game_exe_path_override.as_deref();
+    let result = purge_shader_cache_impl(override_ref);
+    match result.reason.as_str() {
+        "removed" => info!(
+            "Manual shader cache clear: removed {} bytes ({})",
+            result.bytes_freed,
+            result.path.as_deref().unwrap_or("?")
+        ),
+        "not_present" => info!(
+            "Manual shader cache clear: nothing to remove ({})",
+            result.path.as_deref().unwrap_or("?")
+        ),
+        other => warn!(
+            "Manual shader cache clear refused: {} ({})",
+            other,
+            result.path.as_deref().unwrap_or("?")
+        ),
+    }
+    Ok(result)
+}
+
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(not(target_os = "linux"))]
+pub fn clear_bf2_shader_cache(
+    _game_exe_path_override: Option<String>,
+) -> Result<ShaderCacheClearResult, String> {
+    Err("shader cache clear is linux-only".to_string())
 }
 
 flutter_logger::flutter_logger_init!(LevelFilter::Debug);

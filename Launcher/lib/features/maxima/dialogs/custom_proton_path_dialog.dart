@@ -301,12 +301,10 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
         if (isLinux)
           KyberButton(
             text: 'Reset to default',
-            onPressed: () {
-              try {
-                setCustomProtonPath(path: null);
+            onPressed: () async {
+              final ok = await _trySetCustomProtonPath(context, null, 'reset');
+              if (ok && context.mounted) {
                 Navigator.of(context).pop();
-              } catch (e) {
-                _showError(context, 'Failed to reset: $e');
               }
             },
           ),
@@ -326,7 +324,7 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
         if (isLinux)
           KyberButton(
             text: 'Save',
-            onPressed: () {
+            onPressed: () async {
               final text = controller.text.trim();
               if (text.isNotEmpty &&
                   validation != null &&
@@ -337,11 +335,13 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
                 );
                 return;
               }
-              try {
-                setCustomProtonPath(path: text.isEmpty ? null : text);
+              final ok = await _trySetCustomProtonPath(
+                context,
+                text.isEmpty ? null : text,
+                'save',
+              );
+              if (ok && context.mounted) {
                 Navigator.of(context).pop();
-              } catch (e) {
-                _showError(context, 'Failed to save: $e');
               }
             },
           ),
@@ -362,6 +362,98 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
         ),
       ),
     );
+  }
+
+  /// Wrapper around setCustomProtonPath that handles the wineserver-busy
+  /// error case from beta.6.1. If a stale wineserver blocks the switch,
+  /// prompts the user to kill it and retry, instead of failing silently.
+  /// Returns true if the Proton path was applied (or no change was needed).
+  Future<bool> _trySetCustomProtonPath(
+    BuildContext context,
+    String? targetPath,
+    String operationVerb,
+  ) async {
+    try {
+      setCustomProtonPath(path: targetPath);
+      return true;
+    } catch (e) {
+      final msg = e.toString();
+      if (!msg.contains('wineserver_busy')) {
+        _showError(context, 'Failed to $operationVerb: $e');
+        return false;
+      }
+      if (!context.mounted) return false;
+      final shouldKill = await showDialog<bool>(
+        context: context,
+        builder: (dlgCtx) => KyberContentDialog(
+          constraints: const BoxConstraints(maxWidth: 540),
+          title: Text('Wineserver still running'.toUpperCase()),
+          content: Text(
+            'A wineserver from a previous BF2 session is still attached to '
+            "the Maxima prefix. Switching Proton now would break BF2's next "
+            'launch (the stale wineserver and the new wine version would '
+            'fight over the prefix).\n\n'
+            'Kill the stale wineserver and retry? BF2 will close if it is '
+            'still open.',
+            style: FluentTheme.of(dlgCtx)
+                .typography
+                .body
+                ?.copyWith(color: kWhiteColor),
+          ),
+          actions: [
+            KyberButton(
+              text: 'Cancel',
+              onPressed: () => Navigator.of(dlgCtx).pop(false),
+            ),
+            KyberButton(
+              text: 'Kill wineserver and retry',
+              onPressed: () => Navigator.of(dlgCtx).pop(true),
+            ),
+          ],
+        ),
+      );
+      if (shouldKill != true) return false;
+      if (!context.mounted) return false;
+      try {
+        final killed = killMaximaWineserver();
+        try {
+          setCustomProtonPath(path: targetPath);
+          if (context.mounted) {
+            displayInfoBar(
+              context,
+              builder: (_, close) => InfoBar(
+                title: const Text('Custom Proton'),
+                content: Text(
+                  killed > 0
+                      ? 'Killed $killed stale wineserver process(es), '
+                          'Proton path applied.'
+                      : 'Proton path applied.',
+                ),
+                severity: InfoBarSeverity.success,
+                action: IconButton(
+                  icon: const Icon(FluentIcons.clear),
+                  onPressed: close,
+                ),
+              ),
+            );
+          }
+          return true;
+        } catch (retryErr) {
+          if (context.mounted) {
+            _showError(
+              context,
+              'Failed to $operationVerb after wineserver kill: $retryErr',
+            );
+          }
+          return false;
+        }
+      } catch (killErr) {
+        if (context.mounted) {
+          _showError(context, 'Failed to kill wineserver: $killErr');
+        }
+        return false;
+      }
+    }
   }
 
   Future<void> _confirmAndClearCache(BuildContext context) async {

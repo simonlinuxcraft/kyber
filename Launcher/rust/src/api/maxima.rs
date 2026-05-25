@@ -821,6 +821,19 @@ pub fn set_custom_proton_path(path: Option<String>) -> Result<(), String> {
     // the cache). Normalised to trimmed-or-None for comparison.
     let old_value = read_sidecar_trimmed(&sidecar);
     let new_value = path.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let proton_path_changed = old_value.as_deref() != new_value;
+
+    // MAXIMA-LINUX-PORT-MOD 2026-05-25: refuse a Proton switch while a
+    // wineserver from a previous BF2 session is still attached to our
+    // prefix. Mixing the stale wineserver's wine version with a freshly
+    // routed proton (after the symlink swap in ensure_proton_routing)
+    // produces a silent protocol mismatch that hangs the next launch.
+    // The error has a structured prefix so the UI can offer a kill-and-
+    // retry path. No-op Save (same value) is never blocked, because no
+    // state change would happen and the stale wineserver is irrelevant.
+    if proton_path_changed && is_maxima_wineserver_alive() {
+        return Err("wineserver_busy: a wineserver from a previous BF2 session is still attached to the Maxima prefix. Close BF2 fully, or use the Kill wineserver action, then try again.".to_string());
+    }
 
     match new_value {
         Some(p) => {
@@ -832,8 +845,6 @@ pub fn set_custom_proton_path(path: Option<String>) -> Result<(), String> {
             let _ = std::fs::remove_file(&sidecar);
         }
     }
-
-    let proton_path_changed = old_value.as_deref() != new_value;
     if proton_path_changed {
         // Best-effort: failure here does not propagate so the dialog
         // always reports its real Save outcome. Custom-game-path users
@@ -1081,6 +1092,141 @@ fn is_bf2_running() -> bool {
         }
     }
     false
+}
+
+// MAXIMA-LINUX-PORT-MOD 2026-05-25: detect wineservers attached to the
+// Maxima wine prefix. Used to refuse Proton-switches while a previous
+// BF2 session's wineserver still owns the prefix (protocol mismatch
+// between stale server and new client wine binary silently breaks the
+// next launch). Prefix-scoped (not system-wide) so unrelated Wine games
+// from other prefixes are untouched. Returns PIDs found.
+#[cfg(target_os = "linux")]
+fn find_maxima_wineserver_pids() -> Vec<i32> {
+    let maxima_prefix = match maxima::unix::wine::default_wine_prefix_dir() {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    // Canonicalize so a symlinked prefix (Steam compatdata) matches the
+    // wineserver's WINEPREFIX which is usually the real path.
+    let prefix_targets: Vec<std::path::PathBuf> = {
+        let mut v = vec![maxima_prefix.clone()];
+        if let Ok(canon) = std::fs::canonicalize(&maxima_prefix) {
+            if canon != maxima_prefix {
+                v.push(canon);
+            }
+        }
+        v
+    };
+
+    let mut pids = Vec::new();
+    let entries = match std::fs::read_dir("/proc") {
+        Ok(e) => e,
+        Err(_) => return pids,
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = match name.to_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if !name_str.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        // Filter to wineserver processes only.
+        let comm_path = entry.path().join("comm");
+        match std::fs::read_to_string(&comm_path) {
+            Ok(comm) => {
+                if comm.trim() != "wineserver" {
+                    continue;
+                }
+            }
+            Err(_) => continue,
+        }
+        // Read environ to find WINEPREFIX. NUL-separated key=value pairs.
+        let environ_path = entry.path().join("environ");
+        let bytes = match std::fs::read(&environ_path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let mut matched = false;
+        for chunk in bytes.split(|&b| b == 0) {
+            let s = match std::str::from_utf8(chunk) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if let Some(value) = s.strip_prefix("WINEPREFIX=") {
+                let p = std::path::PathBuf::from(value);
+                let canon = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
+                if prefix_targets.iter().any(|t| *t == p || *t == canon) {
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if matched {
+            if let Ok(pid) = name_str.parse::<i32>() {
+                pids.push(pid);
+            }
+        }
+    }
+    pids
+}
+
+#[cfg(target_os = "linux")]
+fn is_maxima_wineserver_alive() -> bool {
+    !find_maxima_wineserver_pids().is_empty()
+}
+
+/// Kill any wineservers that are attached to the Maxima wine prefix.
+/// Sends SIGTERM, waits briefly, then SIGKILL stragglers. Prefix-scoped:
+/// wineservers belonging to other Wine games are never touched.
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(target_os = "linux")]
+pub fn kill_maxima_wineserver() -> Result<u32, String> {
+    let pids = find_maxima_wineserver_pids();
+    if pids.is_empty() {
+        info!("kill_maxima_wineserver: no wineservers attached to maxima prefix");
+        return Ok(0);
+    }
+    info!(
+        "kill_maxima_wineserver: sending SIGTERM to {} wineserver pid(s): {:?}",
+        pids.len(),
+        pids
+    );
+    for &pid in &pids {
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+    }
+    // Give wineserver up to ~3 seconds to exit gracefully, then SIGKILL.
+    for _ in 0..30 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if find_maxima_wineserver_pids().is_empty() {
+            info!("kill_maxima_wineserver: all wineservers exited cleanly");
+            return Ok(pids.len() as u32);
+        }
+    }
+    let stragglers = find_maxima_wineserver_pids();
+    if !stragglers.is_empty() {
+        warn!(
+            "kill_maxima_wineserver: SIGKILLing {} unresponsive pid(s): {:?}",
+            stragglers.len(),
+            stragglers
+        );
+        for &pid in &stragglers {
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    Ok(pids.len() as u32)
+}
+
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(not(target_os = "linux"))]
+pub fn kill_maxima_wineserver() -> Result<u32, String> {
+    Err("wineserver kill is linux-only".to_string())
 }
 
 #[cfg(target_os = "linux")]

@@ -833,3 +833,4 @@ fn prepend_locpath(locpath_dir: &Path) {
         TARGET_LOCALE,
     );
 }
+

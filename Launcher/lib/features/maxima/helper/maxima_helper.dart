@@ -352,6 +352,27 @@ class MaximaHelper {
     ];
     if (gamePath != null) args.addAll(['--game-path', gamePath]);
 
+    // The CLI carries its own Maxima checkout (Kyber/CLI/ThirdParty/Maxima)
+    // which does NOT pick up the launcher-side custom_proton_path sidecar.
+    // Flag this loudly so the user understands they are not actually
+    // playing on the custom Proton they configured in the launcher UI.
+    if (Platform.isLinux) {
+      try {
+        final activeCustomProton = maxima.getCustomProtonPath();
+        if (activeCustomProton != null && activeCustomProton.isNotEmpty) {
+          _logger.warning(
+            '[custom-proton] CLI fallback ignores the custom Proton sidecar '
+            "(set to '$activeCustomProton'). kyber_cli will launch BF2 with "
+            'the auto-managed Maxima default Proton instead. Disable the '
+            'Custom Proton override in Settings if you want consistent '
+            'behaviour between FFI and CLI launches.',
+          );
+        }
+      } catch (_) {
+        // FFI may be unavailable in odd states; ignore.
+      }
+    }
+
     _logger.info('Delegating game launch to kyber_cli (Linux CLI path)...');
     final process = await Process.start(kyberCliPath, args, environment: env);
 

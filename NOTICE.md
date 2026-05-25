@@ -39,7 +39,7 @@ for the Linux port to function:
 
 | Path | Origin | Upstream license | Compliance notes |
 |---|---|---|---|
-| `CLI/cli_payload/umu-wrapper.sh` | ACowAdonis `kyber-bf2-linux` tarball, V1.0.0 | GPL-3.0-or-later (matches tarball) | SPDX header added; vendored 2026-05-05. **Modified 2026-05-07**: added wine-helper container-routing `case`, locale `reg add` and `KYBER_HIDE_CONSOLE` Wine-registry seeding (each marked with `MAXIMA-LINUX-PORT-MOD` comments) |
+| `CLI/cli_payload/umu-wrapper.sh` | ACowAdonis `kyber-bf2-linux` tarball, V1.0.0 | GPL-3.0-or-later (matches tarball) | SPDX header added; vendored 2026-05-05. **Modified 2026-05-07**: added wine-helper container-routing `case`, locale `reg add` and `KYBER_HIDE_CONSOLE` Wine-registry seeding. **Modified 2026-05-18**: dropped D-Bus container routing for wine-helper.exe, exec host wine64 directly. **Modified 2026-05-24**: tolerant Proton-layout detection (files/bin, dist/bin, bin) and resolution of the user-supplied custom Proton path via `KYBER_PROTON_PATH` env-var or `~/.local/share/maxima/custom_proton_path` sidecar file. **Modified 2026-05-25**: also accept the Wine 10 WoW64 single-binary layout (`wine` without `wine64` suffix, e.g. proton-cachyos 11.x). **Modified 2026-05-26**: the WINEPREFIX now stays the shared default - per-Proton routing happens at the `wine/proton` symlink level in maxima-lib instead of via per-prefix WINEPREFIX, keeping save games + EA App login state shared across Proton switches. Each block marked with `MAXIMA-LINUX-PORT-MOD` comments. |
 | `CLI/cli_payload/ea-auth-webview.py` | Same | GPL-3.0-or-later | SPDX header added |
 | `CLI/cli_payload/kyber-auth-helper.sh` | Same | GPL-3.0-or-later | SPDX header added |
 | `CLI/cli_payload/wine-helper.exe` | Same (pre-built Win32 PE binary) | GPL-3.0-or-later (per tarball) | Binary, no in-tree source. **§6(b) written offer applies — see `CLI/cli_payload/README.md` for source-request procedure (GitHub Issues).** |
@@ -127,4 +127,4 @@ upstream Kyber maintainers are listed in `README.md`.
 ---
 
 This NOTICE will be updated when third-party code is added,
-removed, or relicensed. Last reviewed: 2026-05-05.
+removed, or relicensed. Last reviewed: 2026-05-26.

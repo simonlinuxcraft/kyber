@@ -53,6 +53,71 @@ export DXVK_ASYNC=1
 # this correctly using its own synchronization primitives.
 export WINEDLLOVERRIDES="msvcp140=b;${WINEDLLOVERRIDES}"
 
+# MAXIMA-LINUX-PORT-MOD 2026-05-24: resolve effective proton directory.
+# Resolution order matches maxima-lib's proton_dir():
+#   1. KYBER_PROTON_PATH env-var (power-user override)
+#   2. ~/.local/share/maxima/custom_proton_path sidecar file (launcher UI)
+#   3. ~/.local/share/maxima/wine/proton (maxima auto-managed default)
+# Single source of truth so both case-branches below stay consistent
+# (Bug-Hunter #2).
+KYBER_RESOLVED_PROTON_DIR="${KYBER_PROTON_PATH:-}"
+if [ -z "$KYBER_RESOLVED_PROTON_DIR" ]; then
+  _kyber_sidecar="$HOME/.local/share/maxima/custom_proton_path"
+  if [ -f "$_kyber_sidecar" ]; then
+    # Bash $() strips trailing newlines but preserves internal whitespace.
+    # Critical: don't tr -d '[:space:]' here - that would strip spaces INSIDE
+    # the path (e.g. "Proton-GE Latest" -> "Proton-GELatest" → no such dir).
+    KYBER_RESOLVED_PROTON_DIR=$(<"$_kyber_sidecar")
+  fi
+fi
+if [ -z "$KYBER_RESOLVED_PROTON_DIR" ]; then
+  KYBER_RESOLVED_PROTON_DIR="$HOME/.local/share/maxima/wine/proton"
+fi
+
+# Tolerant layout detection: probe known wine64 locations across builds.
+# GE-Proton uses files/bin/, Valve stock uses dist/bin/, some Lutris/Heroic
+# builds use a flat bin/. Returns empty if none found - caller handles.
+#
+# MAXIMA-LINUX-PORT-MOD 2026-05-25: also probe `wine` (no `64` suffix) for
+# Wine-10 WoW64 single-binary builds (proton-cachyos 11.0, future GE-Proton
+# 11+). Wine 10 merged 32/64-bit into one multilib binary named just `wine`.
+# Prefer `wine64` when both exist so legacy split-binary builds keep their
+# original behaviour.
+_kyber_resolve_wine_bin() {
+  local dir="$1"
+  for sub in files/bin/wine64 dist/bin/wine64 bin/wine64 \
+             files/bin/wine dist/bin/wine bin/wine; do
+    if [ -x "$dir/$sub" ]; then
+      printf '%s' "$dir/$sub"
+      return 0
+    fi
+  done
+  return 1
+}
+
+_kyber_resolve_lib_paths() {
+  # Returns a colon-joined list of ALL existing library directories under the
+  # given proton dir. Critical: must include both lib64 AND lib (32-bit), the
+  # original wrapper had both. Wine-helper.exe and parts of pressure-vessel
+  # need 32-bit libs even on 64-bit games.
+  local dir="$1"
+  local out=""
+  for sub in files/lib64 dist/lib64 lib64 files/lib dist/lib lib; do
+    if [ -d "$dir/$sub" ]; then
+      if [ -z "$out" ]; then
+        out="$dir/$sub"
+      else
+        out="$out:$dir/$sub"
+      fi
+    fi
+  done
+  printf '%s' "$out"
+}
+
+# Stderr log of resolved proton dir so the launcher log shows exactly which
+# proton each wine call used. Cheap, helps debug custom-proton issues.
+echo "[umu-wrapper] PROTON_DIR=$KYBER_RESOLVED_PROTON_DIR" >&2
+
 # MAXIMA-LINUX-PORT-MOD 2026-05-18: dropped the D-Bus container routing
 # for wine-helper.exe and just exec host wine64 directly. The original
 # wrapper (vendored 2026-05-05 from ACowAdonis kyber-bf2-linux V1.0.0)
@@ -67,18 +132,29 @@ export WINEDLLOVERRIDES="msvcp140=b;${WINEDLLOVERRIDES}"
 # itself goes through wineserver, so we don't need BF2's PID namespace.
 case "$1" in
   *wine-helper.exe)
-    PROTON_DIR="$HOME/.local/share/maxima/wine/proton"
-    WINE_BIN="$PROTON_DIR/files/bin/wine64"
-    if [ ! -x "$WINE_BIN" ]; then
-      echo "[umu-wrapper] wine64 not found at $WINE_BIN — Maxima Proton may not be downloaded yet." >&2
+    # MAXIMA-LINUX-PORT-MOD 2026-05-24: use resolved proton dir (custom or
+    # default) with tolerant layout detection.
+    # Note: tried forcing default proton here for inject stability with
+    # dll-syringe, but mixing two wine64 binaries against the same
+    # WINEPREFIX caused wineserver lock contention and froze the game
+    # launch. Reverted - custom proton inject failure stays a known
+    # limitation until wine-helper.exe itself drops dll-syringe.
+    PROTON_DIR="$KYBER_RESOLVED_PROTON_DIR"
+    WINE_BIN=$(_kyber_resolve_wine_bin "$PROTON_DIR")
+    if [ -z "$WINE_BIN" ]; then
+      echo "[umu-wrapper] wine64 not found under $PROTON_DIR (tried files/bin, dist/bin, bin). Custom proton path invalid or Maxima Proton not yet downloaded." >&2
       exit 1
     fi
+    LIB_PATHS=$(_kyber_resolve_lib_paths "$PROTON_DIR")
     export WINEPREFIX="$HOME/.local/share/maxima/wine/prefix"
     export WINEDEBUG="fixme-all"
     export WINEFSYNC=1
     export WINEESYNC=1
-    export LD_LIBRARY_PATH="$PROTON_DIR/files/lib64:$PROTON_DIR/files/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-    export PATH="$PROTON_DIR/files/bin:$PATH"
+    if [ -n "$LIB_PATHS" ]; then
+      export LD_LIBRARY_PATH="$LIB_PATHS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    BIN_DIR=$(dirname "$WINE_BIN")
+    export PATH="$BIN_DIR:$PATH"
     exec "$WINE_BIN" "$@"
     ;;
 
@@ -104,13 +180,17 @@ case "$1" in
     # which returns de-DE, failing the language entitlement check.
     # We run wine64 directly (no umu-run overhead, uses the running wineserver)
     # immediately before the game launch so it takes effect before BF2 reads it.
-    PROTON_DIR="$HOME/.local/share/maxima/wine/proton"
-    WINE_BIN="$PROTON_DIR/files/bin/wine64"
-    if [ -x "$WINE_BIN" ]; then
+    # MAXIMA-LINUX-PORT-MOD 2026-05-24: use resolved proton dir (custom or
+    # default) with tolerant layout detection.
+    PROTON_DIR="$KYBER_RESOLVED_PROTON_DIR"
+    WINE_BIN=$(_kyber_resolve_wine_bin "$PROTON_DIR")
+    if [ -n "$WINE_BIN" ]; then
+      LIB_PATHS=$(_kyber_resolve_lib_paths "$PROTON_DIR")
+      _kyber_ld="${LIB_PATHS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
       WINEPREFIX="$HOME/.local/share/maxima/wine/prefix" \
       WINEDEBUG="fixme-all" \
       WINEFSYNC=1 WINEESYNC=1 \
-      LD_LIBRARY_PATH="$PROTON_DIR/files/lib64:$PROTON_DIR/files/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+      LD_LIBRARY_PATH="$_kyber_ld" \
         "$WINE_BIN" reg add "HKCU\\Control Panel\\International" \
           /v Locale /t REG_SZ /d 00000409 /f 2>/dev/null
 
@@ -125,10 +205,13 @@ case "$1" in
       WINEPREFIX="$HOME/.local/share/maxima/wine/prefix" \
       WINEDEBUG="fixme-all" \
       WINEFSYNC=1 WINEESYNC=1 \
-      LD_LIBRARY_PATH="$PROTON_DIR/files/lib64:$PROTON_DIR/files/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+      LD_LIBRARY_PATH="$_kyber_ld" \
         "$WINE_BIN" reg add "HKCU\\Environment" \
           /v KYBER_HIDE_CONSOLE /t REG_SZ /d 1 /f 2>/dev/null
     fi
+    # umu-run itself stays Maxima-managed - it reads PROTONPATH from its env
+    # (set by maxima-lib's run_wine_command, which goes through proton_dir()
+    # and therefore honors the custom override automatically).
     exec "$HOME/.local/share/maxima/wine/umu/umu-run" "$@"
     ;;
 esac

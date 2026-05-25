@@ -1,10 +1,14 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber_launcher/core/core.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
 import 'package:kyber_launcher/features/frosty/dialogs/frosty_import_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/custom_game_path_dialog.dart';
+import 'package:kyber_launcher/features/maxima/dialogs/custom_proton_path_dialog.dart';
 import 'package:kyber_launcher/features/mods/dialogs/move_directory_dialog.dart';
 import 'package:kyber_launcher/features/settings/screens/settings.dart';
+import 'package:kyber_launcher/gen/rust/api/maxima.dart';
 import 'package:kyber_launcher/main.dart';
 import 'package:kyber_launcher/shared/ui/ui.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
@@ -44,6 +48,15 @@ class ModSupport extends StatelessWidget {
                   context: context,
                 ),
               ),
+              if (Platform.isLinux)
+                KyberTableItem.button(
+                  title: 'Custom Proton Path (Experimental)',
+                  text: getCustomProtonPath() == null ? 'Set Path' : 'Change',
+                  onClick: () => showKyberDialog(
+                    builder: (_) => const CustomProtonPathDialog(),
+                    context: context,
+                  ),
+                ),
               KyberTableItem.button(
                 title: 'Frosty Converter',
                 text: 'Convert your Packs',

@@ -380,6 +380,14 @@ pub async fn start_game(
     #[cfg(target_os = "linux")]
     crate::linux_setup::ensure_critical_symlinks();
 
+    // MAXIMA-LINUX-PORT-MOD 2026-05-26: reconcile wine/proton routing right
+    // before launch. Surfaces CustomProtonInvalid as an Err that propagates
+    // through start_game to the launcher's Dart side, which shows the
+    // hard-error dialog with [Reset to default] [Cancel] options. Idempotent
+    // - cheap when already in correct state.
+    #[cfg(target_os = "linux")]
+    maxima::unix::wine::ensure_proton_routing().map_err(|e| anyhow::anyhow!(e))?;
+
     // Ensure Wine locale is en-US before bootstrap launches BF2.
     // Also covers first-run: if prefix was just created by a prior bootstrap
     // invocation, the file now exists and we can patch it.
@@ -625,6 +633,24 @@ pub fn init_app() {
     // prefix and BF2 launches against the un-patched Steam compatdata.
     #[cfg(target_os = "linux")]
     crate::linux_setup::ensure_critical_symlinks();
+
+    // MAXIMA-LINUX-PORT-MOD 2026-05-26: Option H proton routing. Whenever
+    // the launcher boots, reconcile wine/proton's filesystem state with the
+    // sidecar (real Maxima-managed dir vs symlink to custom proton). Runs
+    // early in init_app because: (a) it's a pure filesystem operation safe
+    // before tokio start, (b) Maxima's install_wine which runs later will
+    // see the correct state and skip on custom mode. Invalid custom paths
+    // are surfaced from start_game later, not here - init_app must not
+    // block app startup just because a stale sidecar points at a removed
+    // proton install.
+    #[cfg(target_os = "linux")]
+    if let Err(e) = maxima::unix::wine::ensure_proton_routing() {
+        log::warn!(
+            "[ensure_proton_routing] init_app: failed to reconcile wine/proton: {}. \
+             start_game will retry and surface any error to the user.",
+            e
+        );
+    }
     #[cfg(target_os = "linux")]
     crate::linux_setup::ensure_en_us_utf8_locale();
     #[cfg(target_os = "linux")]
@@ -643,6 +669,291 @@ pub fn init_app() {
     // max level to Debug so that debug!/trace! calls in maxima-lib are not
     // silently discarded before reaching the Dart log stream.
     set_max_level(LevelFilter::Debug);
+}
+
+// MAXIMA-LINUX-PORT-MOD 2026-05-24: Custom Proton override API.
+//
+// The user-supplied proton path is stored in a sidecar file at
+// ~/.local/share/maxima/custom_proton_path (read by maxima-lib's proton_dir()
+// at every wine call, no env::set_var needed). This avoids the unsafe race
+// of mutating env-vars after tokio threads have spawned, and supports
+// hot-switching without launcher restart.
+
+pub struct ProtonValidation {
+    pub valid: bool,
+    pub layout: String,
+    pub in_home: bool,
+    pub error: Option<String>,
+}
+
+pub struct ProtonCandidate {
+    pub path: String,
+    pub display_name: String,
+    pub version_hint: Option<String>,
+    pub in_home: bool,
+}
+
+#[cfg(target_os = "linux")]
+fn sidecar_path() -> anyhow::Result<std::path::PathBuf> {
+    Ok(maxima_dir()?.join("custom_proton_path"))
+}
+
+#[cfg(target_os = "linux")]
+fn path_in_home(p: &std::path::Path) -> bool {
+    std::env::var("HOME")
+        .map(|h| p.starts_with(&h))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn detect_layout(p: &std::path::Path) -> Option<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let exec_at = |sub: &str| -> bool {
+        std::fs::metadata(p.join(sub))
+            .map(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
+            .unwrap_or(false)
+    };
+    // MAXIMA-LINUX-PORT-MOD 2026-05-25: detect Wine 10 WoW64 single-binary
+    // builds where `wine64` is a symlink pointing back to `wine`. The dialog
+    // surfaces this via a `-wow64` layout suffix so the user gets an extra
+    // warning before saving - dll-syringe 0.15.2 in wine-helper.exe is
+    // known-broken against the WoW64 single-binary layout.
+    let wine64_is_wow64_symlink = |sub_dir: &str| -> bool {
+        let path = p.join(sub_dir).join("wine64");
+        if let Ok(meta) = std::fs::symlink_metadata(&path) {
+            if meta.file_type().is_symlink() {
+                if let Ok(target) = std::fs::read_link(&path) {
+                    let s = target.to_string_lossy();
+                    return s == "wine" || s.ends_with("/wine");
+                }
+            }
+        }
+        false
+    };
+    if p.join("proton").exists() {
+        // Probe the inner bin dirs to flag WoW64 even when the top-level
+        // proton script is the umu entry point.
+        for sub in ["files/bin", "dist/bin", "bin"] {
+            if wine64_is_wow64_symlink(sub) {
+                return Some("proton-script-wow64".to_string());
+            }
+            if !exec_at(&format!("{}/wine64", sub)) && exec_at(&format!("{}/wine", sub)) {
+                return Some("proton-script-wow64".to_string());
+            }
+        }
+        Some("proton-script".to_string())
+    } else if exec_at("files/bin/wine64") {
+        if wine64_is_wow64_symlink("files/bin") {
+            Some("ge-files-wow64".to_string())
+        } else {
+            Some("ge-files".to_string())
+        }
+    } else if exec_at("dist/bin/wine64") {
+        if wine64_is_wow64_symlink("dist/bin") {
+            Some("valve-dist-wow64".to_string())
+        } else {
+            Some("valve-dist".to_string())
+        }
+    } else if exec_at("bin/wine64") {
+        if wine64_is_wow64_symlink("bin") {
+            Some("flat-bin-wow64".to_string())
+        } else {
+            Some("flat-bin".to_string())
+        }
+    } else if exec_at("files/bin/wine") {
+        Some("ge-files-wow64".to_string())
+    } else if exec_at("dist/bin/wine") {
+        Some("valve-dist-wow64".to_string())
+    } else if exec_at("bin/wine") {
+        Some("flat-bin-wow64".to_string())
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn read_proton_version_hint(p: &std::path::Path) -> Option<String> {
+    for candidate in &["version", "version.txt"] {
+        if let Ok(content) = std::fs::read_to_string(p.join(candidate)) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.lines().next().unwrap_or(trimmed).to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Write or clear the custom-proton sidecar file. Atomic via tmp+rename so
+/// a partial write never produces a half-readable sidecar.
+/// path = Some(non-empty): set override
+/// path = None or Some(""): clear override (delete sidecar)
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(target_os = "linux")]
+pub fn set_custom_proton_path(path: Option<String>) -> Result<(), String> {
+    let sidecar = sidecar_path().map_err(|e| e.to_string())?;
+    let parent = sidecar
+        .parent()
+        .ok_or_else(|| "sidecar has no parent dir".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+
+    match path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(p) => {
+            let tmp = sidecar.with_extension("tmp");
+            std::fs::write(&tmp, p).map_err(|e| e.to_string())?;
+            std::fs::rename(&tmp, &sidecar).map_err(|e| e.to_string())?;
+        }
+        None => {
+            let _ = std::fs::remove_file(&sidecar);
+        }
+    }
+
+    // MAXIMA-LINUX-PORT-MOD 2026-05-26: reconcile wine/proton routing
+    // immediately so the UI toggle takes effect without a launcher restart.
+    // Errors are surfaced to the dialog (e.g. CustomProtonInvalid lets the
+    // user fix the path before clicking Play). Best-effort: a routing
+    // failure here also means start_game would fail, so reporting it now
+    // saves a misleading "game not installed" later.
+    maxima::unix::wine::ensure_proton_routing().map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(not(target_os = "linux"))]
+pub fn set_custom_proton_path(_path: Option<String>) -> Result<(), String> {
+    Err("custom proton path is linux-only".to_string())
+}
+
+/// Read the current custom-proton sidecar value, trimmed.
+/// Returns None when the file is missing, unreadable, or empty.
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(target_os = "linux")]
+pub fn get_custom_proton_path() -> Option<String> {
+    let sidecar = sidecar_path().ok()?;
+    let content = std::fs::read_to_string(&sidecar).ok()?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(not(target_os = "linux"))]
+pub fn get_custom_proton_path() -> Option<String> {
+    None
+}
+
+/// Live-validate a proton directory for the settings dialog UI. Cheap,
+/// stat-only, returns a structured result so the UI can show specific
+/// hints (warn icon for outside-$HOME, error message for bad layout).
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(target_os = "linux")]
+pub fn validate_proton_path(path: String) -> ProtonValidation {
+    let p = std::path::PathBuf::from(&path);
+    let in_home = path_in_home(&p);
+
+    if !p.is_dir() {
+        return ProtonValidation {
+            valid: false,
+            layout: String::new(),
+            in_home,
+            error: Some(format!("path does not exist or is not a directory: {}", path)),
+        };
+    }
+
+    match detect_layout(&p) {
+        Some(layout) => ProtonValidation {
+            valid: true,
+            layout,
+            in_home,
+            error: None,
+        },
+        None => ProtonValidation {
+            valid: false,
+            layout: String::new(),
+            in_home,
+            error: Some("no wine binary found (expected files/bin/wine64, dist/bin/wine64, bin/wine64, files/bin/wine for Wine 10 WoW64, or top-level proton script)".to_string()),
+        },
+    }
+}
+
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(not(target_os = "linux"))]
+pub fn validate_proton_path(_path: String) -> ProtonValidation {
+    ProtonValidation {
+        valid: false,
+        layout: String::new(),
+        in_home: false,
+        error: Some("linux-only".to_string()),
+    }
+}
+
+/// Discover proton installations in the well-known Steam compatibilitytools
+/// locations across distros. Async because it touches the filesystem (up to
+/// ~30 stat calls). Returns deduplicated, layout-validated candidates.
+#[cfg(target_os = "linux")]
+pub async fn scan_known_proton_locations() -> Vec<ProtonCandidate> {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return Vec::new(),
+    };
+
+    let roots: Vec<std::path::PathBuf> = vec![
+        format!("{}/.local/share/Steam/compatibilitytools.d", home).into(),
+        format!("{}/.steam/steam/compatibilitytools.d", home).into(),
+        format!("{}/.steam/debian-installation/compatibilitytools.d", home).into(),
+        format!("{}/.var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d", home).into(),
+        "/usr/share/steam/compatibilitytools.d".into(),
+        "/usr/local/share/steam/compatibilitytools.d".into(),
+    ];
+
+    let mut seen: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
+    let mut out: Vec<ProtonCandidate> = Vec::new();
+
+    for root in roots {
+        let entries = match std::fs::read_dir(&root) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            if !seen.insert(canonical.clone()) {
+                continue;
+            }
+            if detect_layout(&canonical).is_none() {
+                continue;
+            }
+            let display_name = canonical
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
+                .to_string();
+            let path_string = canonical.to_string_lossy().to_string();
+            let in_home = path_in_home(&canonical);
+            let version_hint = read_proton_version_hint(&canonical);
+
+            out.push(ProtonCandidate {
+                path: path_string,
+                display_name,
+                version_hint,
+                in_home,
+            });
+        }
+    }
+
+    out
+}
+
+#[cfg(not(target_os = "linux"))]
+pub async fn scan_known_proton_locations() -> Vec<ProtonCandidate> {
+    Vec::new()
 }
 
 flutter_logger::flutter_logger_init!(LevelFilter::Debug);

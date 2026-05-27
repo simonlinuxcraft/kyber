@@ -31,27 +31,36 @@ pub fn ensure_critical_symlinks() {
         home
     ));
 
-    let candidates: Vec<PathBuf> = std::env::var("STEAM_LIBRARY_ROOT")
-        .ok()
-        .map(PathBuf::from)
-        .into_iter()
-        .chain([
-            PathBuf::from("/mnt/Games/SteamLibrary"),
-            PathBuf::from(format!("{}/.steam/steam", home)),
-            PathBuf::from(format!("{}/.local/share/Steam", home)),
-        ])
-        .map(|root| root.join("steamapps/compatdata").join(BF2_STEAM_APP_ID).join("pfx"))
-        .collect();
-
-    let target = match candidates.iter().find(|p| p.exists()) {
-        Some(p) => p.clone(),
+    // Primary: derive compatdata from BF2's actual install path via the
+    // Maxima libraryfolders.vdf resolver. Covers custom Steam library
+    // roots (e.g. /home/<user>/Games/Steam) that the hardcoded list
+    // below doesn't know about.
+    let target = match bf2_compatdata_via_steam_resolver() {
+        Some(p) => p,
         None => {
-            log::warn!(
-                "No BF2 Steam compatdata found in any candidate path. Tried: {}. \
-                 Open Steam and let it create the BF2 prefix once, then restart.",
-                candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
-            );
-            return;
+            let candidates: Vec<PathBuf> = std::env::var("STEAM_LIBRARY_ROOT")
+                .ok()
+                .map(PathBuf::from)
+                .into_iter()
+                .chain([
+                    PathBuf::from("/mnt/Games/SteamLibrary"),
+                    PathBuf::from(format!("{}/.steam/steam", home)),
+                    PathBuf::from(format!("{}/.local/share/Steam", home)),
+                ])
+                .map(|root| root.join("steamapps/compatdata").join(BF2_STEAM_APP_ID).join("pfx"))
+                .collect();
+
+            match candidates.iter().find(|p| p.exists()) {
+                Some(p) => p.clone(),
+                None => {
+                    log::warn!(
+                        "No BF2 Steam compatdata found via vdf resolver or hardcoded paths. \
+                         Tried: {}. Open Steam and let it create the BF2 prefix once, then restart.",
+                        candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+                    );
+                    return;
+                }
+            }
         }
     };
 
@@ -122,6 +131,47 @@ pub fn ensure_critical_symlinks() {
             target.display(),
             e
         ),
+    }
+}
+
+// Derive BF2's compatdata pfx from the install path Steam reports via
+// libraryfolders.vdf. <library_root>/steamapps/common/STAR WARS Battlefront II
+// always pairs with <library_root>/steamapps/compatdata/<appid>/pfx, so
+// once we have one we have the other. Returns None when BF2 isn't
+// installed, the vdf chain can't be read, or the derived pfx doesn't
+// exist yet (Steam hasn't created the prefix).
+fn bf2_compatdata_via_steam_resolver() -> Option<PathBuf> {
+    let bf2_install = match maxima::util::registry::read_game_path("bf2") {
+        Ok(p) => p,
+        Err(e) => {
+            log::debug!(
+                "Steam vdf resolver could not locate BF2 install ({}); \
+                 falling back to hardcoded candidate paths.",
+                e
+            );
+            return None;
+        }
+    };
+
+    let steamapps = bf2_install.parent()?.parent()?;
+    let pfx = steamapps
+        .join("compatdata")
+        .join(BF2_STEAM_APP_ID)
+        .join("pfx");
+
+    if pfx.exists() {
+        log::info!(
+            "Steam vdf resolver located BF2 compatdata at {}",
+            pfx.display()
+        );
+        Some(pfx)
+    } else {
+        log::debug!(
+            "Derived compatdata path {} does not exist yet; falling back \
+             to hardcoded candidate paths.",
+            pfx.display()
+        );
+        None
     }
 }
 

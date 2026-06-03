@@ -95,7 +95,9 @@ Future<void> initSentry(String currentVersion) async => SentryFlutter.init(
           return null;
         }
 
-        if (exception is GrpcError && exception.code == StatusCode.unknown) {
+        if (exception is GrpcError &&
+            (exception.code == StatusCode.unknown ||
+                exception.code == StatusCode.unauthenticated)) {
           return null;
         }
 

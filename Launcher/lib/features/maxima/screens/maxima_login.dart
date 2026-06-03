@@ -108,7 +108,15 @@ class _MaximaLoginState extends State<MaximaLogin> {
 
     return switch (state.status) {
       .starting => const _StatusRow(text: 'Maxima is starting...'),
-      .loading => const _StatusRow(text: 'Fetching data...'),
+      .loading => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _StatusRow(text: 'Fetching data...'),
+          // Manual paste only helps the Linux sandboxed-browser case.
+          if (Platform.isLinux) const _ManualCodeEntry(),
+        ],
+      ),
       _ => _LoginIntro(onLogin: () => _requestLogin(context)),
     };
   }
@@ -296,6 +304,75 @@ class _StatusRow extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _ManualCodeEntry extends StatefulWidget {
+  const _ManualCodeEntry();
+
+  @override
+  State<_ManualCodeEntry> createState() => _ManualCodeEntryState();
+}
+
+class _ManualCodeEntryState extends State<_ManualCodeEntry> {
+  final _controller = TextEditingController();
+  bool _expanded = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_controller.text.trim().isEmpty) return;
+    // this.context disambiguates State.context from package:path's top-level
+    // `context` getter, which is imported unprefixed in this file.
+    this.context.read<MaximaCubit>().submitManualAuthCode(_controller.text);
+    NotificationService.info(message: 'Submitting sign-in code...');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_expanded) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: HyperlinkButton(
+          onPressed: () => setState(() => _expanded = true),
+          child: const Text("Browser didn't return to the launcher?"),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'If the browser does not come back to the launcher (common with '
+            'Flatpak browsers and on Steam Deck), copy the link or code it '
+            'tried to open after sign-in and paste it here.',
+            style: FluentTheme.of(context).typography.body,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: KyberInput(
+                  controller: _controller,
+                  placeholder: 'qrc:///...?code=... or just the code',
+                  onFieldSubmitted: (_) => _submit(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              KyberButton(text: 'Submit', onPressed: _submit),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

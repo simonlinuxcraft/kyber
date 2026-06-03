@@ -9,7 +9,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:kyber_collection/kyber_collection.dart';
 import 'package:kyber_launcher/core/config/colors.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
-import 'package:kyber_launcher/core/services/module_version_service.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/download_manager/providers/download_manager_cubit.dart';
 import 'package:kyber_launcher/features/maxima/providers/maxima_cubit.dart';
@@ -41,8 +40,6 @@ class _WalkThroughSetupState extends State<WalkThroughSetup> {
   void initState() {
     Preferences.general.modsPath = FileHelper.getModsDirectory().path;
     Timer.run(() => BlocProvider.of<DownloadCubit>(context));
-
-    ModuleVersionService().updateVersion(module: VersionModule.module);
 
     super.initState();
   }

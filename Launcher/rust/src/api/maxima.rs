@@ -473,7 +473,6 @@ async fn login(login_override: Option<String>) -> anyhow::Result<TokenResponse> 
         let code = nucleus_auth_exchange(&auth_context, JUNO_PC_CLIENT_ID, "code").await?;
         auth_context.set_code(&code);
     } else {
-        info!("Beginning login flow..");
         begin_oauth_login_flow(&mut auth_context).await?
     };
 

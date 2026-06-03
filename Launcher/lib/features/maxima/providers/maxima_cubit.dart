@@ -438,6 +438,37 @@ class MaximaCubit extends Cubit<MaximaState> {
     return Future.error('Login failed');
   }
 
+  // Matches the OAuth code in a pasted qrc:// redirect URL, or accepts a bare
+  // code. EA codes are URL-safe, so no decode/re-encode is needed.
+  static final _authCodePattern = RegExp(r'code=([^&\s]+)');
+
+  /// Manual fallback for the EA OAuth callback. A sandboxed browser
+  /// (Flatpak/Snap, Steam Deck) may not hand the qrc:// redirect back to the
+  /// launcher, so the automatic callback never arrives. The Rust login flow
+  /// listens on 127.0.0.1:31033/auth while waiting; delivering the code there
+  /// completes login exactly as the browser callback would. The port must
+  /// match `begin_oauth_login_flow` in maxima-lib.
+  Future<void> submitManualAuthCode(String input) async {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return;
+
+    final code = _authCodePattern.firstMatch(trimmed)?.group(1) ?? trimmed;
+
+    try {
+      await Dio().getUri<void>(
+        Uri.parse('http://127.0.0.1:31033/auth?code=$code'),
+        options: Options(receiveTimeout: const Duration(seconds: 3)),
+      );
+    } on DioException catch (e) {
+      // Expected: the listener reads the request line, takes the code, and
+      // drops the socket without a full HTTP response. The code has already
+      // reached the login flow at that point.
+      logger.fine('Manual auth code delivered (transport closed: ${e.type})');
+    } catch (e, s) {
+      logger.warning('Manual auth code submit failed', e, s);
+    }
+  }
+
   Future<void> _checkDebugMaximaFiles() async {
     if (!kDebugMode || Platform.isMacOS) {
       return;

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -61,7 +62,12 @@ class _NavigationBarState extends State<NavigationBar>
   void _setupListeners() {
     sl.get<KyberGRPCServer>().start();
     windowManager.addListener(this);
-    protocolHandler.addListener(this);
+    // protocol_handler has no Linux backend; addListener subscribes to an
+    // EventChannel that throws MissingPluginException there. Linux nxm://
+    // is handled via the inotify bridge in ProtocolHelper instead.
+    if (!Platform.isLinux) {
+      protocolHandler.addListener(this);
+    }
   }
 
   void _deferredInitialization() {
@@ -74,7 +80,9 @@ class _NavigationBarState extends State<NavigationBar>
   @override
   void dispose() {
     windowManager.removeListener(this);
-    protocolHandler.removeListener(this);
+    if (!Platform.isLinux) {
+      protocolHandler.removeListener(this);
+    }
     super.dispose();
   }
 

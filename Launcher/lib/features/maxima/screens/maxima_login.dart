@@ -17,6 +17,24 @@ import 'package:kyber_launcher/shared/ui/utils/background_blur.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart';
 
+// On SteamOS / Steam Deck the EA login opens in a Flatpak browser that does not
+// hand the qrc:// callback back to the launcher, so the automatic login hangs.
+// There the manual paste field is the reliable path and is surfaced up front.
+// Computed once; /etc/os-release does not change at runtime.
+final bool _kIsSteamDeck = _detectSteamDeck();
+
+bool _detectSteamDeck() {
+  if (!Platform.isLinux) return false;
+  final env = Platform.environment;
+  if (env['SteamDeck'] == '1' || env.containsKey('SteamOS')) return true;
+  try {
+    final release = File('/etc/os-release').readAsStringSync();
+    return RegExp(r'^ID=steamos$', multiLine: true).hasMatch(release);
+  } catch (_) {
+    return false;
+  }
+}
+
 class MaximaLogin extends StatefulWidget {
   const MaximaLogin({super.key});
 
@@ -113,8 +131,10 @@ class _MaximaLoginState extends State<MaximaLogin> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const _StatusRow(text: 'Fetching data...'),
-          // Manual paste only helps the Linux sandboxed-browser case.
-          if (Platform.isLinux) const _ManualCodeEntry(),
+          // Manual paste only helps the Linux sandboxed-browser case. On Steam
+          // Deck it is the expected path, so show it expanded right away.
+          if (Platform.isLinux)
+            _ManualCodeEntry(initiallyExpanded: _kIsSteamDeck),
         ],
       ),
       _ => _LoginIntro(onLogin: () => _requestLogin(context)),
@@ -145,6 +165,9 @@ class _MaximaLoginState extends State<MaximaLogin> {
       error: error,
       onCopyPath: () => _copyPath(context),
       onLogout: () => context.read<MaximaCubit>().logout(),
+      // On Linux a failed/timed-out login leaves no callback listener; let the
+      // user restart the flow (which re-surfaces the manual paste field).
+      onRetry: Platform.isLinux ? () => _requestLogin(context) : null,
     );
   }
 
@@ -153,7 +176,7 @@ class _MaximaLoginState extends State<MaximaLogin> {
       error,
       stackTrace,
     ) {
-      if (error is! PanicException && error! is AnyhowException) return;
+      if (error is! PanicException && error is! AnyhowException) return;
 
       final raw = error is PanicException
           ? error.message
@@ -250,6 +273,7 @@ class _MaximaLoginState extends State<MaximaLogin> {
 
       Logger.root.warning('Failed to add to whitelist', e, s);
       NotificationService.error(message: message);
+      if (!mounted) return;
       context.read<MaximaCubit>().emitError(message);
     } finally {
       if (!mounted) return;
@@ -309,7 +333,9 @@ class _StatusRow extends StatelessWidget {
 }
 
 class _ManualCodeEntry extends StatefulWidget {
-  const _ManualCodeEntry();
+  const _ManualCodeEntry({this.initiallyExpanded = false});
+
+  final bool initiallyExpanded;
 
   @override
   State<_ManualCodeEntry> createState() => _ManualCodeEntryState();
@@ -317,7 +343,7 @@ class _ManualCodeEntry extends StatefulWidget {
 
 class _ManualCodeEntryState extends State<_ManualCodeEntry> {
   final _controller = TextEditingController();
-  bool _expanded = false;
+  late bool _expanded = widget.initiallyExpanded;
 
   @override
   void dispose() {
@@ -392,6 +418,15 @@ class _LoginIntro extends StatelessWidget {
           'In order to use this launcher, you need to login to Maxima. This is required to launch and interact with Battlefront 2.\nYou will be redirected to the EA login page and after logging in, you will be redirected back to the launcher.',
           style: FluentTheme.of(context).typography.body,
         ),
+        if (_kIsSteamDeck) ...[
+          const SizedBox(height: 10),
+          Text(
+            'On Steam Deck the browser often does not return to the launcher '
+            'after sign-in. If the login seems stuck, copy the link or code the '
+            'browser opened and paste it into the field that appears below.',
+            style: FluentTheme.of(context).typography.caption,
+          ),
+        ],
         const SizedBox(height: 16),
         Row(
           children: [
@@ -519,11 +554,16 @@ class _MaximaGenericError extends StatelessWidget {
     required this.error,
     required this.onCopyPath,
     required this.onLogout,
+    this.onRetry,
   });
 
   final String error;
   final VoidCallback onCopyPath;
   final VoidCallback onLogout;
+
+  /// Restarts the login flow. After a login timeout the local callback
+  /// listener is gone, so a fresh attempt is needed before pasting a code.
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -573,7 +613,14 @@ class _MaximaGenericError extends StatelessWidget {
             },
           ),
           Row(
-            children: [KyberButton(text: 'Log out', onPressed: onLogout)],
+            mainAxisAlignment: onRetry != null
+                ? MainAxisAlignment.spaceBetween
+                : MainAxisAlignment.start,
+            children: [
+              KyberButton(text: 'Log out', onPressed: onLogout),
+              if (onRetry != null)
+                KyberButton(text: 'Try again', onPressed: onRetry!),
+            ],
           ),
         ],
       ),

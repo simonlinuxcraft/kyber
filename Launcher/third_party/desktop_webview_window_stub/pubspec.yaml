@@ -1,0 +1,33 @@
+name: desktop_webview_window
+# Local Linux no-op stub. The real plugin links libwebkit2gtk-4.1, which drags a
+# ~122 MB webkit stack into the AppImage that is never used on Linux
+# (flutter_web_auth_2 runs with useWebview:false here, and nothing calls
+# WebviewWindow). Bundling webkit also breaks startup on distros without a
+# system webkit (Steam Deck/SteamOS) because webkit hardcodes its helper path.
+# Pinned to upstream 0.2.3. When bumping, resync lib/ from the new pub-cache
+# entry but keep linux/CMakeLists.txt and the *_plugin_stub.cc as no-ops.
+description: "Linux no-op stub for desktop_webview_window (drops the webkit2gtk dependency)."
+version: 0.2.3
+homepage: https://github.com/MixinNetwork/flutter-plugins/tree/main/packages/desktop_webview_window
+
+environment:
+  sdk: ">=2.14.0 <4.0.0"
+  flutter: ">=2.5.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    # Declare the same platforms as upstream so the generated plugin
+    # registrants for macOS/Windows stay identical to upstream (this is a
+    # Linux-only build; the macOS/Windows native code is never compiled here).
+    # Only the Linux implementation is replaced by this no-op stub.
+    platforms:
+      linux:
+        pluginClass: DesktopWebviewWindowPlugin
+      macos:
+        pluginClass: DesktopWebviewWindowPlugin
+      windows:
+        pluginClass: DesktopWebviewWindowPlugin

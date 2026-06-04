@@ -136,6 +136,12 @@ dependency_overrides:
   # Runtime WebView calls on Linux will not work.
   flutter_inappwebview_linux:
     path: third_party/flutter_inappwebview_linux_stub
+  # desktop_webview_window (pulled in transitively by flutter_web_auth_2) links
+  # libwebkit2gtk-4.1, dragging ~122 MB of webkit into the AppImage that is
+  # never used on Linux and breaks startup on distros without a system webkit
+  # (Steam Deck/SteamOS). Replace it with a no-op stub that links no webkit.
+  desktop_webview_window:
+    path: third_party/desktop_webview_window_stub
 
 dev_dependencies:
   build_runner: ^2.8.0

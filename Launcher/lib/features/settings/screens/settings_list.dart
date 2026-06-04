@@ -12,6 +12,10 @@ import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/shared/ui/ui.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+// Linux-port release version, shown next to the upstream Kyber client version
+// in Settings. Keep in sync with the GitHub release / CHANGELOG each release.
+const String kLinuxPortVersion = '0.1.0-beta.6.4';
+
 class SettingsList extends StatefulWidget {
   const SettingsList({this.initialIndex, super.key});
 
@@ -144,7 +148,7 @@ class _SettingsListState extends State<SettingsList> {
           ),
           child: Container(
             alignment: Alignment.center,
-            width: 220,
+            width: 340,
             decoration: BoxDecoration(
               border: Border.all(
                 color: decoColor,
@@ -164,13 +168,15 @@ class _SettingsListState extends State<SettingsList> {
                 }
 
                 return Text(
-                  'VERSION: ${snapshot.data?.version}#CL${snapshot.data?.buildNumber}',
+                  'VERSION: ${snapshot.data?.version}#CL${snapshot.data?.buildNumber}\n'
+                  'unofficial Linux port $kLinuxPortVersion',
+                  textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: FontFamily.iBMPlexMono,
                     fontSize: 13,
                     color: Colors.white,
                   ),
-                  maxLines: 1,
+                  maxLines: 2,
                 );
               },
             ),

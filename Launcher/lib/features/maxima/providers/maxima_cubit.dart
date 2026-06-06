@@ -382,13 +382,34 @@ class MaximaCubit extends Cubit<MaximaState> {
           logger.severe('Invalid grant... Logging out');
           _loggingIn = false;
 
-          final authFile = File(
-            "${Platform.environment['UserProfile']}\\AppData\\Roaming\\ArmchairDevelopers\\Maxima\\data\\auth.toml",
-          );
+          // MAXIMA-LINUX-PORT-MOD: original used a hardcoded Windows path
+          // with %UserProfile% which on Linux resolves to "null\..." and
+          // silently misses the actual auth file, leaving the stale token in
+          // place. The delete + retry recovery then never runs, so login keeps
+          // failing until the file is removed by hand. Use the platform-correct
+          // path, same as logout().
+          final home = Platform.environment['HOME'] ?? '';
+          final appdata = Platform.environment['APPDATA'] ?? '';
+          final authPath = Platform.isLinux
+              ? '$home/.local/share/maxima/auth.toml'
+              : Platform.isMacOS
+              ? '$home/Library/Application Support/maxima/auth.toml'
+              : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
+          final authFile = File(authPath);
           if (authFile.existsSync()) {
             authFile.deleteSync();
             return requestLogin();
           }
+          // No stale auth file to clear: surface the error instead of
+          // falling through to the bare Future.error below, which would
+          // leave the UI stuck on the loading spinner.
+          return emit(
+            MaximaState(
+              status: MaximaStatus.error,
+              error: e.message,
+              servicePlayer: servicePlayer,
+            ),
+          );
         } else if (e.message.contains('Game not owned')) {
           logger.severe('Unknown error... Logging out');
           _loggingIn = false;
@@ -448,9 +469,20 @@ class MaximaCubit extends Cubit<MaximaState> {
   /// listens on 127.0.0.1:31033/auth while waiting; delivering the code there
   /// completes login exactly as the browser callback would. The port must
   /// match `begin_oauth_login_flow` in maxima-lib.
-  Future<void> submitManualAuthCode(String input) async {
+  // Returns false when no login attempt is waiting for the code. The
+  // 127.0.0.1:31033 listener only exists while loginFlow awaits the callback
+  // (_loggingIn is true for exactly that window), so a paste without an active
+  // flow would hit a closed port and silently do nothing. The UI uses this to
+  // tell the user to start the login first instead of leaving them stuck on
+  // "Submitting sign-in code...".
+  Future<bool> submitManualAuthCode(String input) async {
     final trimmed = input.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty) return false;
+
+    if (!_loggingIn) {
+      logger.warning('Manual auth code submitted with no login flow waiting');
+      return false;
+    }
 
     final code = _authCodePattern.firstMatch(trimmed)?.group(1) ?? trimmed;
 
@@ -467,6 +499,7 @@ class MaximaCubit extends Cubit<MaximaState> {
     } catch (e, s) {
       logger.warning('Manual auth code submit failed', e, s);
     }
+    return true;
   }
 
   Future<void> _checkDebugMaximaFiles() async {

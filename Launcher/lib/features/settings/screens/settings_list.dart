@@ -14,7 +14,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 // Linux-port release version, shown next to the upstream Kyber client version
 // in Settings. Keep in sync with the GitHub release / CHANGELOG each release.
-const String kLinuxPortVersion = '0.1.0-beta.6.4';
+const String kLinuxPortVersion = '0.1.0-beta.6.4.1';
 
 class SettingsList extends StatefulWidget {
   const SettingsList({this.initialIndex, super.key});
@@ -45,7 +45,7 @@ class _SettingsListState extends State<SettingsList> {
       'child': const LanguageAndAccessibility(),
     },
     {
-      'title': 'MOD CONFIGURATION',
+      'title': 'MODS / PROTON',
       'description': 'CONFIGURE MODS SETTINGS, IMPORT FROM FROSTY & MORE',
       'child': const ModSupport(),
     },

@@ -519,7 +519,7 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
         severity = InfoBarSeverity.warning;
         message =
             'Could not locate BF2 install. Set a Custom Game Path in '
-            'Mod Configuration, then try again.';
+            'Mods / Proton, then try again.';
       case 'bf2_running':
         severity = InfoBarSeverity.warning;
         message = 'BF2 is running, close it first.';

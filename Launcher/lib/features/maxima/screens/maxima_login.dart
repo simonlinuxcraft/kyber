@@ -344,6 +344,7 @@ class _ManualCodeEntry extends StatefulWidget {
 class _ManualCodeEntryState extends State<_ManualCodeEntry> {
   final _controller = TextEditingController();
   late bool _expanded = widget.initiallyExpanded;
+  bool _submitting = false;
 
   @override
   void dispose() {
@@ -351,12 +352,33 @@ class _ManualCodeEntryState extends State<_ManualCodeEntry> {
     super.dispose();
   }
 
-  void _submit() {
-    if (_controller.text.trim().isEmpty) return;
+  Future<void> _submit() async {
+    if (_submitting) return;
+    final raw = _controller.text.trim();
+    if (raw.isEmpty) return;
+    // Catch the most common wrong paste (a link without a code= in it, e.g.
+    // the EA sign-in page) before starting a token exchange EA would reject.
+    if (raw.contains('://') && !raw.contains('code=')) {
+      NotificationService.warning(
+        message: 'That link has no sign-in code in it. After signing in, copy '
+            'the URL that contains code= and paste that one.',
+      );
+      return;
+    }
+    setState(() => _submitting = true);
     // this.context disambiguates State.context from package:path's top-level
     // `context` getter, which is imported unprefixed in this file.
-    this.context.read<MaximaCubit>().submitManualAuthCode(_controller.text);
-    NotificationService.info(message: 'Submitting sign-in code...');
+    final delivered =
+        await this.context.read<MaximaCubit>().submitManualAuthCode(raw);
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    if (delivered) {
+      NotificationService.info(message: 'Submitting sign-in code...');
+    } else {
+      NotificationService.warning(
+        message: "Tap 'Login with EA' first, then paste the code here.",
+      );
+    }
   }
 
   @override
@@ -379,8 +401,10 @@ class _ManualCodeEntryState extends State<_ManualCodeEntry> {
         children: [
           Text(
             'If the browser does not come back to the launcher (common with '
-            'Flatpak browsers and on Steam Deck), copy the link or code it '
-            'tried to open after sign-in and paste it here.',
+            'Flatpak browsers and on Steam Deck), copy the URL it opened '
+            'after sign-in (the one containing code=) and paste it here. Keep '
+            'the launcher open and paste it right away: restarting the '
+            'launcher or waiting too long makes the code stop working.',
             style: FluentTheme.of(context).typography.body,
           ),
           const SizedBox(height: 8),
@@ -608,7 +632,39 @@ class _MaximaGenericError extends StatelessWidget {
                     ],
                   );
                 default:
-                  return Text(error);
+                  {
+                    // Map known EA token-exchange rejections to an actionable
+                    // hint; otherwise show the raw error selectable and
+                    // scrollable so it is neither truncated nor impossible to
+                    // copy for a bug report.
+                    final lower = error.toLowerCase();
+                    final rawBox = Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(maxHeight: 160),
+                      child: SingleChildScrollView(
+                        child: SelectableText(error),
+                      ),
+                    );
+                    if (lower.contains('token exchange failed') ||
+                        lower.contains('not issued to this environment') ||
+                        lower.contains('invalid_grant')) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'EA rejected the sign-in code. Usually the pasted '
+                            'code was not the one from the page the launcher '
+                            'opened, or it had already expired. Tap "Try '
+                            'again", sign in on the page the launcher opens, '
+                            'then paste the URL that contains code= right away.',
+                          ),
+                          const SizedBox(height: 10),
+                          rawBox,
+                        ],
+                      );
+                    }
+                    return rawBox;
+                  }
               }
             },
           ),

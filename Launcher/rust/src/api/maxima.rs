@@ -269,6 +269,43 @@ pub async fn lsx_get_event_stream(pid: u32, is_startup: Option<bool>, game_sink:
     }
 }
 
+// MAXIMA-LINUX-PORT-MOD 2026-06-07: progress of the GE-Proton runtime download
+// that runs inside start_game on first launch. Surfaced so the start-game
+// dialog can show a percentage instead of a frozen-looking window during the
+// ~516MB download. total_bytes == 0 is an idle tick (no active download).
+pub struct ProtonDownloadProgress {
+    pub label: String,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+}
+
+/// Streams GE-Proton download progress to the launcher UI. Polls the
+/// maxima-lib download slot ~4x/sec and forwards it. Emits an idle tick
+/// (total_bytes == 0) when nothing is downloading; the Dart side ignores
+/// those and relies on them only to notice the subscription was cancelled
+/// (sink.add then errors, ending the loop). The caller (start-game dialog)
+/// cancels the subscription once start_game resolves, so this never leaks.
+pub async fn get_proton_download_progress(sink: StreamSink<ProtonDownloadProgress>) {
+    loop {
+        let msg = match maxima::util::github::download_progress() {
+            Some((label, downloaded, total)) => ProtonDownloadProgress {
+                label,
+                downloaded_bytes: downloaded,
+                total_bytes: total,
+            },
+            None => ProtonDownloadProgress {
+                label: String::new(),
+                downloaded_bytes: 0,
+                total_bytes: 0,
+            },
+        };
+        if sink.add(msg).is_err() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
 pub async fn get_user(pd: String) -> anyhow::Result<ServicePlayer> {
     let maxima_arc = maxima().clone();
     let maxima = maxima_arc.lock().await;

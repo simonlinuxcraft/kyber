@@ -43,10 +43,15 @@ class MaximaStartGameDialog extends StatefulWidget {
 class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
   Timer? _gameStatusTimer;
   StreamSubscription<String>? _gameEvents;
+  // First-launch GE-Proton runtime download progress (Linux). Lets the dialog
+  // show a percentage during the ~516MB download instead of looking frozen.
+  StreamSubscription<ProtonDownloadProgress>? _protonProgress;
 
   bool updating = false;
   bool preloadingMods = false;
   String? lastEvent;
+  int? protonDownloadedBytes;
+  int? protonTotalBytes;
 
   @override
   void initState() {
@@ -110,6 +115,19 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
         );
       }
 
+      // Surface the GE-Proton runtime download (first launch) as a percentage.
+      // Idle ticks (totalBytes == 0) are ignored; the stream self-closes once
+      // the subscription is cancelled below / on dispose.
+      _protonProgress = getProtonDownloadProgress().listen((p) {
+        if (!mounted || p.totalBytes == BigInt.zero) {
+          return;
+        }
+        setState(() {
+          protonDownloadedBytes = p.downloadedBytes.toInt();
+          protonTotalBytes = p.totalBytes.toInt();
+        });
+      }, cancelOnError: true);
+
       await checkService();
       await MaximaHelper.startGame(
             gameDataPath: widget.gameDataDir,
@@ -117,6 +135,8 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
             mods: widget.mods,
           )
           .then((value) async {
+            // Proton download (if any) is done once start_game resolves.
+            _protonProgress?.cancel();
             if (!mounted) {
               return;
             }
@@ -152,6 +172,7 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
           })
           .onError((error, stackTrace) {
             _gameEvents?.cancel();
+            _protonProgress?.cancel();
             // PID lookup miss or DLL handshake timeout: route both into the
             // recovery dialog (retry / CLI) instead of a dead-end toast.
             if (error is InjectHandshakeTimeoutException ||
@@ -273,6 +294,7 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
   @override
   void dispose() {
     _gameEvents?.cancel();
+    _protonProgress?.cancel();
     _gameStatusTimer?.cancel();
     super.dispose();
   }
@@ -295,27 +317,39 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
               const SizedBox(
                 width: 15,
               ),
-              if (updating)
-                Text(
-                  'Updating Kyber Module...',
-                  style: FluentTheme.of(context).typography.bodyLarge,
-                ),
-              if (!updating)
-                Text(
-                  'Starting Game...',
-                  style: FluentTheme.of(context).typography.bodyLarge,
-                ),
+              Text(
+                updating
+                    ? 'Updating Kyber Module...'
+                    : protonTotalBytes != null
+                    ? 'Downloading Proton runtime...'
+                    : 'Starting Game...',
+                style: FluentTheme.of(context).typography.bodyLarge,
+              ),
             ],
           ),
           const SizedBox(
             height: 10,
           ),
           Text(
-            'Please wait while the game is starting. This may take a few seconds.',
+            protonTotalBytes != null
+                ? 'First launch downloads the Proton runtime once (~${(protonTotalBytes! / 1048576).round()} MB). This can take a few minutes on a slow connection; the download resumes if interrupted.'
+                : 'Please wait while the game is starting. This may take a few seconds.',
             style: FluentTheme.of(context).typography.body?.copyWith(
               color: kWhiteColor,
             ),
           ),
+          if (protonTotalBytes != null && protonTotalBytes! > 0) ...[
+            const SizedBox(height: 10),
+            ProgressBar(
+              value:
+                  ((protonDownloadedBytes ?? 0) / protonTotalBytes!) * 100,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${((protonDownloadedBytes ?? 0) / 1048576).round()} / ${(protonTotalBytes! / 1048576).round()} MB',
+              style: FluentTheme.of(context).typography.caption,
+            ),
+          ],
           const SizedBox(
             height: 10,
           ),

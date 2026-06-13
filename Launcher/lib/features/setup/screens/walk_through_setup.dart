@@ -34,8 +34,6 @@ class _WalkThroughSetupState extends State<WalkThroughSetup> {
   bool disabled = false;
   bool showNexusLogin = false;
 
-  int setupPage = 0;
-
   @override
   void initState() {
     Preferences.general.modsPath = FileHelper.getModsDirectory().path;
@@ -51,6 +49,12 @@ class _WalkThroughSetupState extends State<WalkThroughSetup> {
 
   @override
   Widget build(BuildContext context) {
+    // Drive the EA -> Nexus step from the actual login state, not only the
+    // one-shot listener. A BlocConsumer listener never fires for a loggedIn
+    // state that was already true when this widget mounted, which left the
+    // walkthrough stuck on the EA step and skipped Nexus entirely on Steam Deck.
+    final loggedIn = context.watch<MaximaCubit>().state.loggedIn;
+    final page = loggedIn ? 1 : 0;
     return NavigationView(
       key: const Key('navigation_view'),
       titleBar: const SizedBox(
@@ -91,23 +95,14 @@ class _WalkThroughSetupState extends State<WalkThroughSetup> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(
-                      child: BlocConsumer<MaximaCubit, MaximaState>(
-                        listener: (context, state) {
-                          if (state.loggedIn) {
-                            setState(() => setupPage = 1);
-                          }
-                        },
-                        builder: (context, state) {
-                          return SetupContainer(
-                            showWebView: showNexusLogin,
-                            page: setupPage,
-                            onNexusSuccess: _finishSetup,
-                            onNexusLogin: () =>
-                                setState(() => showNexusLogin = true),
-                            onNexusCancel: () async {
-                              setState(() => showNexusLogin = false);
-                            },
-                          );
+                      child: SetupContainer(
+                        showWebView: showNexusLogin,
+                        page: page,
+                        onNexusSuccess: _finishSetup,
+                        onNexusLogin: () =>
+                            setState(() => showNexusLogin = true),
+                        onNexusCancel: () async {
+                          setState(() => showNexusLogin = false);
                         },
                       ),
                     ),
@@ -140,13 +135,13 @@ class _WalkThroughSetupState extends State<WalkThroughSetup> {
                                   ProgressItem(
                                     iconPath: Assets.logos.eaPlay.path,
                                     text: 'EA Account',
-                                    done: setupPage > 0,
-                                    active: setupPage == 0,
+                                    done: page > 0,
+                                    active: page == 0,
                                   ),
                                   const SizedBox(width: 10),
                                   Assets.icons.launcherUILine1.image(
                                     height: 12,
-                                    color: setupPage > 0
+                                    color: page > 0
                                         ? kActiveColor
                                         : kWhiteColor,
                                   ),
@@ -154,14 +149,14 @@ class _WalkThroughSetupState extends State<WalkThroughSetup> {
                                   ProgressItem(
                                     iconPath: Assets.logos.nexusMods.path,
                                     text: 'Nexus Mods',
-                                    done: setupPage > 1,
-                                    active: setupPage == 1,
+                                    done: page > 1,
+                                    active: page == 1,
                                   ),
                                 ],
                               ),
                               const SizedBox(width: 60),
                               KyberButton(
-                                text: setupPage == 1 ? 'FINISH' : 'SKIP',
+                                text: page == 1 ? 'FINISH' : 'SKIP',
                                 icon: const Icon(FluentIcons.game),
                                 onPressed: _finishSetup,
                               ),

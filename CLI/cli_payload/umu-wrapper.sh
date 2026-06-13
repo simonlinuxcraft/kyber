@@ -34,6 +34,40 @@ export EAEntitlementSource=STEAM
 export EAExternalSource=STEAM
 export EALaunchOwner=STEAM
 
+# MAXIMA-LINUX-PORT-MOD (6.4.3): Steam Deck / SteamOS detection. Routing the
+# launch-time registry setup (the ~15 reg.exe calls in setup_wine_registry plus
+# the locale pre-flight reg query) through umu-run forces umu to bootstrap and
+# download the Steam Linux Runtime on the very first call. On the Deck's slow /
+# unstable links that download loops forever and the prefix never gets its
+# locale keys, so the game never launches. The reg case below runs reg directly
+# via wine64 on the Deck instead (same mechanism the game-launch branch already
+# uses), which needs no umu-run and no runtime download. Require an explicit
+# Deck signal so a normal Arch box (SteamOS 3 is Arch-based) is never matched.
+_kyber_is_deck=0
+[ "${SteamDeck:-}" = "1" ] && _kyber_is_deck=1
+[ -n "${SteamOS:-}" ] && _kyber_is_deck=1
+_kyber_os_id=""
+if [ -r /etc/os-release ]; then
+  _kyber_os_id="$(. /etc/os-release 2>/dev/null && printf '%s' "${ID:-}")"
+fi
+[ "$_kyber_os_id" = "steamos" ] && _kyber_is_deck=1
+
+# MAXIMA-LINUX-PORT-MOD (6.4.3 diag): branch decisions into a file the user can
+# share. stderr alone is not enough: run_wine_command nulls stderr on success,
+# so on the Deck we never saw which branch the reg calls actually took.
+_kyber_diag_log="$HOME/.local/share/maxima/wine/wrapper-diag.log"
+_kyber_diag() {
+  mkdir -p "${_kyber_diag_log%/*}" 2>/dev/null || return 0
+  if [ -f "$_kyber_diag_log" ]; then
+    _kyber_diag_size=$(stat -c%s "$_kyber_diag_log" 2>/dev/null || echo 0)
+    [ "$_kyber_diag_size" -gt 65536 ] 2>/dev/null && : > "$_kyber_diag_log"
+  fi
+  printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$_kyber_diag_log" 2>/dev/null
+}
+# Note: UMU_RUNTIME_UPDATE=0 is set universally by maxima-lib's run_wine_command
+# (reaches umu-run through this wrapper via the inherited environment), so it is
+# not re-exported here.
+
 # Disable gamedrive compat option. When UMU_ID is set, Proton's protonfixes
 # force-enables gamedrive which creates x: -> $HOME and u: -> /media in
 # dosdevices. These extra drive letters break get_os_pid() which only handles
@@ -141,6 +175,7 @@ case "$1" in
     # limitation until wine-helper.exe itself drops dll-syringe.
     PROTON_DIR="$KYBER_RESOLVED_PROTON_DIR"
     WINE_BIN=$(_kyber_resolve_wine_bin "$PROTON_DIR")
+    _kyber_diag "wine-helper: deck=$_kyber_is_deck wine_bin=${WINE_BIN:-none}"
     if [ -z "$WINE_BIN" ]; then
       echo "[umu-wrapper] wine64 not found under $PROTON_DIR (tried files/bin, dist/bin, bin). Custom proton path invalid or Maxima Proton not yet downloaded." >&2
       exit 1
@@ -160,7 +195,41 @@ case "$1" in
 
   # Registry commands - pass through directly
   reg|reg.exe)
-    exec "$HOME/.local/share/maxima/wine/umu/umu-run" "$@"
+    # MAXIMA-LINUX-PORT-MOD (6.4.3): on the Deck, run reg through wine64
+    # directly (no umu-run, no Steam-Linux-Runtime download) using the same
+    # proton resolution as the wine-helper / game-launch branches. This is what
+    # unblocks the first launch on the Deck: setup_wine_registry no longer
+    # forces umu's runtime bootstrap. Other distros keep the umu-run path
+    # unchanged. Falls back to umu-run if wine64 cannot be resolved yet.
+    _reg_wine_bin=$(_kyber_resolve_wine_bin "$KYBER_RESOLVED_PROTON_DIR")
+    _kyber_diag "reg: deck=$_kyber_is_deck SteamDeck=${SteamDeck:-unset} SteamOS=${SteamOS:-unset} os_id=${_kyber_os_id:-unset} wine_bin=${_reg_wine_bin:-none} args=$*"
+    if [ "$_kyber_is_deck" = 1 ]; then
+      if [ -n "$_reg_wine_bin" ]; then
+        _reg_libs=$(_kyber_resolve_lib_paths "$KYBER_RESOLVED_PROTON_DIR")
+        export WINEPREFIX="$HOME/.local/share/maxima/wine/prefix"
+        export WINEDEBUG="fixme-all"
+        export WINEFSYNC=1
+        export WINEESYNC=1
+        if [ -n "$_reg_libs" ]; then
+          export LD_LIBRARY_PATH="$_reg_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        fi
+        export PATH="$(dirname "$_reg_wine_bin"):$PATH"
+        # No exec: capture exit code and duration for the diag log so a
+        # hanging wine64-direct call is distinguishable from a umu hang.
+        _reg_t0=$(date +%s)
+        "$_reg_wine_bin" "$@"
+        _reg_rc=$?
+        _kyber_diag "reg: wine64-direct done rc=$_reg_rc dur=$(( $(date +%s) - _reg_t0 ))s"
+        exit "$_reg_rc"
+      fi
+      # wine64 not resolvable (proton not downloaded yet): fall through.
+      _kyber_diag "reg: deck=1 but wine_bin unresolved, falling back to umu-run"
+    fi
+    _reg_t0=$(date +%s)
+    "$HOME/.local/share/maxima/wine/umu/umu-run" "$@"
+    _reg_rc=$?
+    _kyber_diag "reg: umu-run done rc=$_reg_rc dur=$(( $(date +%s) - _reg_t0 ))s"
+    exit "$_reg_rc"
     ;;
 
   # Game launch
@@ -212,6 +281,7 @@ case "$1" in
     # umu-run itself stays Maxima-managed - it reads PROTONPATH from its env
     # (set by maxima-lib's run_wine_command, which goes through proton_dir()
     # and therefore honors the custom override automatically).
+    _kyber_diag "game: deck=$_kyber_is_deck wine_bin=${WINE_BIN:-none} exec umu-run args=$*"
     exec "$HOME/.local/share/maxima/wine/umu/umu-run" "$@"
     ;;
 esac

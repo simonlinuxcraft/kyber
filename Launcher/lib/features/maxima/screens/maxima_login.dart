@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -51,6 +52,51 @@ class _MaximaLoginState extends State<MaximaLogin> {
 
   bool _whitelistPrompt = false;
   bool _loading = false;
+  // The manual paste field only helps a stuck interactive login. Reveal it
+  // after a short delay so the brief startup token re-validation (which also
+  // sits in the `loading` state) does not flash the paste UI; on Steam Deck it
+  // is expanded immediately. A real browser login stays in `loading` long
+  // enough for the timer to fire.
+  bool _showPasteHelp = false;
+  Timer? _pasteHelpTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // this.context disambiguates State.context from package:path's top-level
+    // `context` getter, which is imported unprefixed in this file.
+    if (this.context.read<MaximaCubit>().state.status ==
+        MaximaStatus.loading) {
+      _startPasteHelpTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pasteHelpTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startPasteHelpTimer() {
+    if (!Platform.isLinux) return;
+    _pasteHelpTimer ??= Timer(const Duration(seconds: 6), () {
+      if (mounted) setState(() => _showPasteHelp = true);
+    });
+  }
+
+  void _resetPasteHelp() {
+    _pasteHelpTimer?.cancel();
+    _pasteHelpTimer = null;
+    if (_showPasteHelp && mounted) setState(() => _showPasteHelp = false);
+  }
+
+  void _onMaximaState(BuildContext context, MaximaState state) {
+    if (state.status == MaximaStatus.loading) {
+      _startPasteHelpTimer();
+    } else {
+      _resetPasteHelp();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +130,8 @@ class _MaximaLoginState extends State<MaximaLogin> {
                     crossAxisAlignment: .start,
                     children: [
                       _Header(),
-                      BlocBuilder<MaximaCubit, MaximaState>(
+                      BlocConsumer<MaximaCubit, MaximaState>(
+                        listener: _onMaximaState,
                         builder: _buildContent,
                       ),
                     ],
@@ -132,8 +179,10 @@ class _MaximaLoginState extends State<MaximaLogin> {
         children: [
           const _StatusRow(text: 'Fetching data...'),
           // Manual paste only helps the Linux sandboxed-browser case. On Steam
-          // Deck it is the expected path, so show it expanded right away.
-          if (Platform.isLinux)
+          // Deck it is the expected path, so show it expanded right away. Gated
+          // on _showPasteHelp so it only appears once a login has been waiting a
+          // few seconds, not during the brief startup token re-validation.
+          if (Platform.isLinux && _showPasteHelp)
             _ManualCodeEntry(initiallyExpanded: _kIsSteamDeck),
         ],
       ),

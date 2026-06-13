@@ -134,6 +134,22 @@ pub fn ensure_critical_symlinks() {
     }
 }
 
+// Read-only check for the launch path. BF2 runs with WINEPREFIX set to
+// ~/.local/share/maxima/wine/prefix (see maxima wine_prefix_dir()), which
+// ensure_critical_symlinks() links to BF2's Steam compatdata. If that link
+// does not resolve to an existing prefix (BF2 not installed/launched via
+// Steam, or a custom game path pointing at a non-Steam copy), the launch can
+// only fail with a cryptic Origin error. Call this right after
+// ensure_critical_symlinks() to fail fast with an actionable message instead.
+pub fn bf2_wine_prefix_available() -> bool {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    // Path::exists follows the symlink: true only when the target dir exists.
+    PathBuf::from(format!("{}/.local/share/maxima/wine/prefix", home)).exists()
+}
+
 // Derive BF2's compatdata pfx from the install path Steam reports via
 // libraryfolders.vdf. <library_root>/steamapps/common/STAR WARS Battlefront II
 // always pairs with <library_root>/steamapps/compatdata/<appid>/pfx, so
@@ -484,6 +500,19 @@ fn patch_system_reg_for_bf2(prefix: &str) {
     patched = ensure_keys_in_section(
         &patched,
         r"Software\\Origin",
+        &[
+            ("ClientPath", "C:/Windows/System32/conhost.exe"),
+            ("InstallSuccessful", "true"),
+        ],
+    );
+    // 32-bit view too: a real `reg add /reg:32` lands under Wow6432Node
+    // (Wine-native casing) and 32-bit Origin shims read that view. Without
+    // it the file patch only covered the 64-bit view, so prefixes where the
+    // reg.exe batch never ran (Steam Deck hang) were missing these keys for
+    // 32-bit readers.
+    patched = ensure_keys_in_section(
+        &patched,
+        r"Software\\Wow6432Node\\Origin",
         &[
             ("ClientPath", "C:/Windows/System32/conhost.exe"),
             ("InstallSuccessful", "true"),

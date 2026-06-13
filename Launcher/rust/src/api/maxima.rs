@@ -415,7 +415,57 @@ pub async fn start_game(
     // (e.g. by a cleanup script, by Steam Verify Local Files, or by manual fs
     // tinkering). Cheap to run; bails early if the symlink is already correct.
     #[cfg(target_os = "linux")]
-    crate::linux_setup::ensure_critical_symlinks();
+    {
+        crate::linux_setup::ensure_critical_symlinks();
+
+        // MAXIMA-LINUX-PORT-MOD (6.4.3 diag): init_app's log lines are lost
+        // when the FFI initialises before the Dart log stream attaches, so
+        // re-log the effective wine runner at launch time. Also probe umu's
+        // runtime lock: umu takes a blocking flock on it, so a stale umu
+        // process from a previous session stalls every new umu call.
+        log::info!(
+            "launch diag: MAXIMA_WINE_COMMAND = {}",
+            std::env::var("MAXIMA_WINE_COMMAND")
+                .unwrap_or_else(|_| "(unset - reg/inject go to raw umu-run)".into())
+        );
+        if let Ok(home) = std::env::var("HOME") {
+            let umu_lock = format!("{}/.local/share/umu/umu.lock", home);
+            if std::path::Path::new(&umu_lock).exists() {
+                match std::process::Command::new("flock")
+                    .args(["-n", &umu_lock, "-c", "true"])
+                    .status()
+                {
+                    Ok(s) if s.success() => log::info!("launch diag: umu.lock is free"),
+                    Ok(_) => log::warn!(
+                        "launch diag: umu.lock is HELD by another process - a stale \
+                         umu/wine run from a previous session is likely blocking the \
+                         launch flow; reboot or kill leftover umu/wineserver processes"
+                    ),
+                    Err(e) => log::debug!("launch diag: flock probe unavailable: {}", e),
+                }
+            }
+        }
+        // BF2 launches with WINEPREFIX = ~/.local/share/maxima/wine/prefix. If
+        // that link does not resolve, the launch can only die with a cryptic
+        // Origin error, so surface an actionable message instead. A custom game
+        // path only sets the .exe, it does not create the Proton prefix.
+        if !crate::linux_setup::bf2_wine_prefix_available() {
+            if game_path_override.is_some() {
+                bail!(
+                    "No Steam Proton prefix for Battlefront II was found. A custom game \
+                     path only points the launcher at the game's .exe; Battlefront II still \
+                     needs a Proton prefix that Steam creates. Install Battlefront II through \
+                     Steam and launch it once via Steam (Proton) so the prefix is created, \
+                     then start it from Kyber again."
+                );
+            }
+            bail!(
+                "No Steam Proton prefix for Battlefront II was found. Launch Battlefront II \
+                 once through Steam (Proton) so Steam creates the prefix, then start it from \
+                 Kyber again."
+            );
+        }
+    }
 
     // MAXIMA-LINUX-PORT-MOD 2026-05-26: reconcile wine/proton routing right
     // before launch. Surfaces CustomProtonInvalid as an Err that propagates

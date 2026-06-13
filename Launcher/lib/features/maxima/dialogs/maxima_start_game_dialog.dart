@@ -237,6 +237,31 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                   ),
                 );
                 return;
+              } else if (error.message.contains('No Steam Proton prefix')) {
+                // Missing BF2 Proton prefix (BF2 not run via Steam yet, or a
+                // custom game path pointing at a non-Steam copy). Show the
+                // actionable message from start_game in a dialog rather than a
+                // toast that scrolls away.
+                showKyberDialog(
+                  context: navigatorKey.currentContext!,
+                  builder: (context) => KyberContentDialog(
+                    title: Text('No Proton prefix found'.toUpperCase()),
+                    content: Text(
+                      error.message,
+                      style: const TextStyle(
+                        fontFamily: FontFamily.battlefrontUI,
+                        fontSize: 17,
+                      ),
+                    ),
+                    actions: [
+                      KyberButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        text: 'Close',
+                      ),
+                    ],
+                  ),
+                );
+                return;
               }
 
               NotificationService.showNotification(

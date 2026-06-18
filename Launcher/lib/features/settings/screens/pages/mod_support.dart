@@ -27,6 +27,7 @@ class ModSupport extends StatelessWidget {
             'enabledPreloadMods',
             'incrementalDownloadsEnabled',
             'customGamePath',
+            'nativeWayland',
           ],
           builder: (_) => KyberTable(
             items: [
@@ -56,6 +57,33 @@ class ModSupport extends StatelessWidget {
                     builder: (_) => const CustomProtonPathDialog(),
                     context: context,
                   ),
+                ),
+              // Only on an actual Wayland session. On X11 GDK_BACKEND=wayland
+              // has no display to open and would stop the launcher starting,
+              // so the toggle is not offered there.
+              if (Platform.isLinux &&
+                  (Platform.environment['WAYLAND_DISPLAY']?.isNotEmpty ?? false))
+                KyberTableItem.switchButton(
+                  title: 'Native Wayland (Experimental, restart to apply)',
+                  value: Preferences.general.nativeWayland,
+                  onChange: (bool value) {
+                    Preferences.general.nativeWayland = value;
+                    writeWaylandBackendPref(value);
+                    displayInfoBar(
+                      context,
+                      builder: (_, close) => InfoBar(
+                        title: const Text('Restart required'),
+                        content: const Text(
+                          'Native Wayland takes effect after you restart Kyber.',
+                        ),
+                        severity: InfoBarSeverity.info,
+                        action: IconButton(
+                          icon: const Icon(FluentIcons.clear),
+                          onPressed: close,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               KyberTableItem.button(
                 title: 'Frosty Converter',

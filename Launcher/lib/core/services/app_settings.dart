@@ -19,6 +19,32 @@ int sanitizePushToTalkKey(int value) {
   return value;
 }
 
+/// Mirror the "Native Wayland" toggle to a plain file that AppRun reads before
+/// GTK initialises (the launcher's Hive store is unreadable from the AppRun
+/// shell). `true` writes "wayland", `false` removes the file so x11 stays the
+/// default. Best-effort; the Hive pref drives the UI regardless.
+void writeWaylandBackendPref(bool wayland) {
+  if (!Platform.isLinux) return;
+  final cfg = Platform.environment['XDG_CONFIG_HOME'];
+  final home = Platform.environment['HOME'];
+  final base = (cfg != null && cfg.isNotEmpty)
+      ? cfg
+      : (home != null && home.isNotEmpty ? '$home/.config' : null);
+  if (base == null) return;
+  final dir = Directory('$base/kyber-linuxport');
+  final file = File('${dir.path}/backend');
+  try {
+    if (wayland) {
+      dir.createSync(recursive: true);
+      file.writeAsStringSync('wayland\n');
+    } else if (file.existsSync()) {
+      file.deleteSync();
+    }
+  } on FileSystemException {
+    // best-effort; choice is still recorded in Hive
+  }
+}
+
 class Preferences {
   static final general = General();
   static final debug = Debug();
@@ -47,6 +73,13 @@ class General {
 
   set incrementalDownloadsEnabled(bool value) =>
       box.put('incrementalDownloadsEnabled', value);
+
+  // Linux only. Mirrored to a plain file via writeWaylandBackendPref so AppRun
+  // can apply GDK_BACKEND before GTK init. Applied on next launch (restart).
+  bool get nativeWayland =>
+      box.get('nativeWayland', defaultValue: false) as bool;
+
+  set nativeWayland(bool value) => box.put('nativeWayland', value);
 
   String? get currentVersion => box.get('currentVersion') as String?;
 

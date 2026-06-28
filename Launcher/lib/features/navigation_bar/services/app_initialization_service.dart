@@ -23,6 +23,7 @@ import 'package:kyber_launcher/features/navigation_bar/dialogs/disable_comp_mode
 import 'package:kyber_launcher/features/navigation_bar/helper/protocol_helper.dart';
 import 'package:kyber_launcher/features/nexusmods/widgets/graphql_provider.dart';
 import 'package:kyber_launcher/features/server_moderation/providers/moderation_servers_cubit.dart';
+import 'package:kyber_launcher/features/settings/dialogs/appimage_update_dialog.dart';
 import 'package:kyber_launcher/features/settings/dialogs/update_dialog.dart';
 import 'package:kyber_launcher/features/setup/dialogs/open_beta_dialog.dart';
 import 'package:kyber_launcher/features/setup/dialogs/rules_dialog.dart';
@@ -74,11 +75,12 @@ class AppInitializationService {
     await ProtocolHelper.initialize();
 
     await _checkCompatibilityMode(context);
-    // AppImage container update runs first: when a new image was
-    // downloaded the service exec()s into it and never returns, so the
-    // in-app module check below is only reached when the AppImage
-    // itself is current (or we're not running from an AppImage).
-    await sl.get<AppImageUpdateService>().checkAndUpdate();
+    // AppImage container update runs first (launcher self-update). It checks
+    // GitHub, and if a newer image exists shows the classic update dialog
+    // (download + restart prompt). The user can defer, so control returns
+    // here either way; the in-app module check below is separate (Kyber
+    // content, not the launcher binary).
+    await _checkAppImageUpdate(context);
     await _checkForUpdates(context);
     await showOpenBetaDialog(context);
     await showRulesDialog(context);
@@ -109,6 +111,26 @@ class AppInitializationService {
         builder: (_) => const UpdateDialog(),
       );
     }
+  }
+
+  // AppImage launcher self-update. Only fires from an AppImage with a
+  // configured endpoint and outside a package-manager context (AUR runs the
+  // extracted binary, so it never reaches here). Shows a "checking" toast,
+  // and if a newer image exists the classic download + restart dialog.
+  static Future<void> _checkAppImageUpdate(BuildContext context) async {
+    if (!AppImageUpdateService.isEligible) return;
+    if (context.mounted) {
+      NotificationService.showNotification(
+        context: context,
+        message: 'Checking for launcher updates...',
+      );
+    }
+    final manifest = await sl.get<AppImageUpdateService>().checkForUpdate();
+    if (manifest == null || !context.mounted) return;
+    await showKyberDialog(
+      context: context,
+      builder: (_) => AppImageUpdateDialog(manifest: manifest),
+    );
   }
 
   static Future<void> _showPlatformWarnings() async {

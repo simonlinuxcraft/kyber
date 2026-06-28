@@ -27,8 +27,8 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:kyber_launcher/features/settings/screens/settings_list.dart';
 import 'package:logging/logging.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:version/version.dart';
 
 class AppImageUpdateManifest {
@@ -75,7 +75,7 @@ class AppImageUpdateService {
   /// If the user invoked the AppImage through a symlink (a common
   /// pattern when the file lives in `~/Applications/` and is reached
   /// via `~/.local/bin/kyber`), the symlink is resolved here so the
-  /// rename in [_downloadAndReplace] hits the real file.
+  /// staging and rename hit the real file.
   static String? get appImagePath {
     final raw = Platform.environment['APPIMAGE'];
     if (raw == null || raw.trim().isEmpty) return null;
@@ -91,49 +91,68 @@ class AppImageUpdateService {
   static String get updateUrl =>
       Platform.environment['KYBER_UPDATE_URL']?.trim() ?? '';
 
-  /// True when the launcher is inside an AppImage *and* an update
-  /// endpoint is configured. Use this to gate UI elements.
-  static bool get isEligible => appImagePath != null && updateUrl.isNotEmpty;
+  /// True in a context where an external package manager owns the binary
+  /// (AUR, distro package). Reuses the same marker the self-install hook
+  /// honors. The AUR build runs the *extracted* binary (no AppImage runtime,
+  /// no AppRun), so it already misses appImagePath/updateUrl; this is the
+  /// belt-and-suspenders so self-update stays off even if a packaged build
+  /// ever runs the .AppImage directly. pacman/yay handle updates there.
+  static bool get isPackagedContext =>
+      Platform.environment['KYBER_NO_AUTO_INSTALL']?.trim().isNotEmpty ?? false;
 
-  /// Performs the full update cycle. Always returns normally; failures
-  /// are logged. If a newer AppImage is downloaded successfully, the
-  /// running process is replaced via `Process.start(detached) +
-  /// exit(0)` and this future never returns.
-  Future<void> checkAndUpdate() async {
-    final appImage = appImagePath;
-    if (appImage == null) {
+  /// True when the launcher is inside an AppImage, an update endpoint is
+  /// configured, and we're not in a package-manager context. Use this to
+  /// gate the update check and any UI elements.
+  static bool get isEligible =>
+      appImagePath != null && updateUrl.isNotEmpty && !isPackagedContext;
+
+  /// Running launcher version, the Linux-port scheme (e.g.
+  /// `0.1.0-beta.6.4.9`). NOT PackageInfo/pubspec, which carries the
+  /// untouched upstream Kyber version (`2.0.0-beta9`) and would make every
+  /// manifest look like a downgrade so the updater never fires.
+  String get currentVersion => kLinuxPortVersion;
+
+  /// Checks the configured endpoint and returns the manifest only when it
+  /// advertises a newer version than the running launcher. Returns null
+  /// when not eligible, on any network/parse error, or when already
+  /// current. Never throws, never downloads, never restarts.
+  Future<AppImageUpdateManifest?> checkForUpdate() async {
+    if (appImagePath == null) {
       _logger.fine('Not running from AppImage; skipping container update.');
-      return;
+      return null;
+    }
+    if (isPackagedContext) {
+      _logger.info(
+        'Package-manager context (KYBER_NO_AUTO_INSTALL set); the AppImage '
+        'self-update is disabled, the package manager handles updates.',
+      );
+      return null;
     }
     final url = updateUrl;
     if (url.isEmpty) {
       _logger.info(
         'KYBER_UPDATE_URL not set; AppImage container self-update disabled.',
       );
-      return;
+      return null;
     }
 
     try {
       final manifest = await _fetchManifest(url);
-      final current = await _currentVersion();
-      // Semantic-version compare via the existing `version` package
-      // (already a launcher dep). Plain string equality is wrong: the
-      // running build's `info.version` and the manifest's `version`
-      // can disagree on pre-release tag formatting (`0.1.0-beta.2` vs
-      // `0.1.0-beta2`) or build metadata (`+1`) without representing
-      // a real version difference, and equality would also miss the
-      // intent to never downgrade.
+      // Semantic-version compare via the existing `version` package.
+      // Plain string equality is wrong: pre-release tag formatting or
+      // build metadata can differ without a real version change, and
+      // equality would also miss the intent to never downgrade.
       final Version currentSemver;
       final Version manifestSemver;
       try {
-        currentSemver = Version.parse(current);
+        currentSemver = Version.parse(currentVersion);
       } on FormatException catch (e) {
         _logger.warning(
-          'Cannot parse running launcher version "$current" as semver; '
-          'skipping AppImage update.',
+          'Cannot parse running launcher version "$currentVersion" as '
+          'semver; skipping AppImage update.',
           e,
         );
-        return;
+        return null;
       }
       try {
         manifestSemver = Version.parse(manifest.version);
@@ -143,30 +162,35 @@ class AppImageUpdateService {
           'valid semver; refusing to install.',
           e,
         );
-        return;
+        return null;
       }
       if (manifestSemver <= currentSemver) {
         _logger.info(
           'AppImage is up to date (running $currentSemver, '
           'manifest $manifestSemver).',
         );
-        return;
+        return null;
       }
       _logger.info(
         'AppImage update available: $currentSemver -> $manifestSemver',
       );
-      await _downloadAndReplace(manifest, appImage);
+      return manifest;
     } on Object catch (e, st) {
       _logger.warning(
         'AppImage container update check failed; continuing without update.',
         e,
         st,
       );
+      return null;
     }
   }
 
   Future<AppImageUpdateManifest> _fetchManifest(String url) async {
-    final response = await Dio().get<dynamic>(
+    // connectTimeout caps a dead/unreachable endpoint so the startup chain that
+    // awaits this check cannot hang on it (the check runs before the onboarding
+    // dialogs). receive/send guard a slow-but-alive endpoint.
+    final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 10)));
+    final response = await dio.get<dynamic>(
       url,
       options: Options(
         responseType: ResponseType.json,
@@ -184,20 +208,21 @@ class AppImageUpdateService {
     return AppImageUpdateManifest.fromJson(data);
   }
 
-  Future<String> _currentVersion() async {
-    // PackageInfo.buildNumber is undefined on Linux/AppImage builds
-    // (Flutter-tools fills it on Android/iOS, leaves it as the empty
-    // string or a build timestamp on desktop). Joining it with `+`
-    // turns a perfectly valid `0.1.0` into the bogus build-metadata
-    // form `0.1.0+` or `0.1.0+0`. We only consume the bare version.
-    final info = await PackageInfo.fromPlatform();
-    return info.version;
-  }
-
-  Future<void> _downloadAndReplace(
-    AppImageUpdateManifest manifest,
-    String currentPath,
-  ) async {
+  /// Downloads the manifest's AppImage to a staging file next to the
+  /// running image, verifies its SHA-256, and makes it executable.
+  /// Returns the staged path; the running image is NOT touched yet, so a
+  /// failure here leaves the user on the current launcher. The caller
+  /// applies it later via [applyAndRestart] (or [discardStaged] to cancel).
+  /// Throws on any failure after cleaning up its partial download.
+  Future<String> downloadUpdate(
+    AppImageUpdateManifest manifest, {
+    void Function(int received, int total)? onProgress,
+    CancelToken? cancelToken,
+  }) async {
+    final currentPath = appImagePath;
+    if (currentPath == null) {
+      throw StateError('not running from an AppImage; cannot stage update');
+    }
     final tag = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
     final tmpPath = '$currentPath.new.$tag';
     final tmpFile = File(tmpPath);
@@ -212,6 +237,8 @@ class AppImageUpdateService {
       await Dio().download(
         manifest.downloadUrl,
         tmpPath,
+        onReceiveProgress: onProgress,
+        cancelToken: cancelToken,
         options: Options(
           receiveTimeout: const Duration(minutes: 30),
         ),
@@ -231,40 +258,7 @@ class AppImageUpdateService {
           'chmod 0755 on staged AppImage failed: ${chmodResult.stderr}',
         );
       }
-
-      // Atomic replace — both files live in the same directory and on
-      // the same filesystem since we derived tmpPath from currentPath.
-      await tmpFile.rename(currentPath);
-
-      // chmod sets the inode mode bit, but if currentPath lives on a
-      // mount that was set up with `noexec` (some users keep
-      // ~/Applications/ on a data partition mounted as ntfs/exfat)
-      // then execve() fails with EACCES and the user is left with no
-      // running launcher. Verify execute permission resolves before
-      // exiting the running process.
-      final canExec = await Process.run('test', ['-x', currentPath]);
-      if (canExec.exitCode != 0) {
-        throw StateError(
-          'Replaced AppImage at $currentPath is not executable '
-          '(noexec mount?); aborting restart so the running launcher '
-          'survives.',
-        );
-      }
-
-      _logger.info(
-        'AppImage replaced; restarting into ${manifest.version}.',
-      );
-      // Forward original CLI arguments so things like `--server` or
-      // protocol-handler invocations (`kyber qrc://...`) survive the
-      // restart.
-      await Process.start(
-        currentPath,
-        Platform.executableArguments,
-        mode: ProcessStartMode.detached,
-      );
-      // Give the child a moment to fork before we tear down stdio.
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      exit(0);
+      return tmpPath;
     } on Object {
       if (tmpFile.existsSync()) {
         try {
@@ -276,6 +270,68 @@ class AppImageUpdateService {
         }
       }
       rethrow;
+    }
+  }
+
+  /// Atomically replaces the running AppImage with the staged file and
+  /// restarts into it. Never returns on success (the process exits). On a
+  /// noexec target the staged file is removed and a StateError is thrown so
+  /// the running launcher survives.
+  Future<void> applyAndRestart(String stagedPath) async {
+    final currentPath = appImagePath;
+    if (currentPath == null) {
+      throw StateError('not running from an AppImage; cannot apply update');
+    }
+    final staged = File(stagedPath);
+    try {
+      // Atomic replace: staged file and target share a directory and
+      // filesystem since the staged path was derived from currentPath.
+      await staged.rename(currentPath);
+
+      // chmod set the inode bit, but a noexec mount (some users keep
+      // ~/Applications/ on an ntfs/exfat data partition) still fails
+      // execve() with EACCES. Verify before tearing down the running one.
+      final canExec = await Process.run('test', ['-x', currentPath]);
+      if (canExec.exitCode != 0) {
+        throw StateError(
+          'Replaced AppImage at $currentPath is not executable '
+          '(noexec mount?); aborting restart so the running launcher '
+          'survives.',
+        );
+      }
+
+      _logger.info('AppImage replaced; restarting.');
+      // Forward original CLI arguments so things like `--server` or
+      // protocol-handler invocations (`kyber qrc://...`) survive.
+      await Process.start(
+        currentPath,
+        Platform.executableArguments,
+        mode: ProcessStartMode.detached,
+      );
+      // Give the child a moment to fork before we tear down stdio.
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      exit(0);
+    } on Object {
+      if (staged.existsSync()) {
+        try {
+          await staged.delete();
+        } on FileSystemException catch (e) {
+          _logger.warning('Failed to remove staged AppImage $stagedPath: $e');
+        }
+      }
+      rethrow;
+    }
+  }
+
+  /// Removes a staged update file (user chose "Later"). Best-effort.
+  Future<void> discardStaged(String stagedPath) async {
+    final f = File(stagedPath);
+    if (f.existsSync()) {
+      try {
+        await f.delete();
+      } on FileSystemException catch (e) {
+        _logger.warning('Failed to discard staged AppImage $stagedPath: $e');
+      }
     }
   }
 

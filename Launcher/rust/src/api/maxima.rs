@@ -411,7 +411,7 @@ pub async fn start_game(
     };
 
     // Re-verify the critical Maxima → Steam-compatdata symlink right before
-    // launch — covers the case where it was removed/replaced after init_app()
+    // launch, covers the case where it was removed/replaced after init_app()
     // (e.g. by a cleanup script, by Steam Verify Local Files, or by manual fs
     // tinkering). Cheap to run; bails early if the symlink is already correct.
     #[cfg(target_os = "linux")]
@@ -450,20 +450,55 @@ pub async fn start_game(
         // Origin error, so surface an actionable message instead. A custom game
         // path only sets the .exe, it does not create the Proton prefix.
         if !crate::linux_setup::bf2_wine_prefix_available() {
-            if game_path_override.is_some() {
+            // MAXIMA-LINUX-PORT-MOD: Non-Steam fallback. No BF2 Steam compatdata.
+            // Opt in only when the user pointed us at a real BF2 copy (custom game
+            // path whose folder exists) or forced it via env. A plain Steam user
+            // who merely never launched BF2 via Steam has no custom path and keeps
+            // getting the actionable "launch once via Steam" message below, so the
+            // existing fail-fast is preserved (no regression).
+            let custom_path_valid = game_path_override
+                .as_deref()
+                .map(|p| {
+                    std::path::Path::new(p)
+                        .parent()
+                        .map(|d| d.exists())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            let forced = std::env::var("KYBER_FORCE_STANDALONE_PREFIX")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false);
+
+            if custom_path_valid || forced {
+                // Fail clean instead of kicking off the ~516MB cold GE-Proton
+                // download that stalls on a Steam Deck: require Proton already on
+                // disk (KYBER_PROTON_PATH / sidecar / auto-detected GE-Proton or
+                // proton-cachyos).
+                if !maxima::unix::wine::proton_resolvable_without_download() {
+                    bail!(
+                        "No Proton build found for the non-Steam launch path. Install \
+                         GE-Proton or proton-cachyos (via Steam's compatibilitytools.d, \
+                         Lutris or Heroic) or set KYBER_PROTON_PATH to a Proton \
+                         directory, then try again."
+                    );
+                }
+                crate::linux_setup::ensure_standalone_prefix().map_err(|e| {
+                    anyhow::anyhow!("Could not set up the non-Steam wine prefix: {}", e)
+                })?;
+            } else if game_path_override.is_some() {
+                // Custom path set but its folder is missing (typo, unmounted drive).
                 bail!(
-                    "No Steam Proton prefix for Battlefront II was found. A custom game \
-                     path only points the launcher at the game's .exe; Battlefront II still \
-                     needs a Proton prefix that Steam creates. Install Battlefront II through \
-                     Steam and launch it once via Steam (Proton) so the prefix is created, \
-                     then start it from Kyber again."
+                    "The custom Battlefront II path's folder was not found. Check the \
+                     path and that the drive is mounted, then try again."
+                );
+            } else {
+                bail!(
+                    "No Steam Proton prefix for Battlefront II was found. Launch \
+                     Battlefront II once through Steam (Proton) so Steam creates the \
+                     prefix, then start it from Kyber again. To run a non-Steam copy, \
+                     set a custom game path in settings."
                 );
             }
-            bail!(
-                "No Steam Proton prefix for Battlefront II was found. Launch Battlefront II \
-                 once through Steam (Proton) so Steam creates the prefix, then start it from \
-                 Kyber again."
-            );
         }
     }
 
@@ -751,7 +786,7 @@ pub fn init_app() {
 
     // flutter_logger_init! is declared at module level with LevelFilter::Debug,
     // but the global max-level starts at Off until a logger is installed.
-    // After setup_default_user_utils() the FRB logger is registered — lock the
+    // After setup_default_user_utils() the FRB logger is registered, lock the
     // max level to Debug so that debug!/trace! calls in maxima-lib are not
     // silently discarded before reaching the Dart log stream.
     set_max_level(LevelFilter::Debug);

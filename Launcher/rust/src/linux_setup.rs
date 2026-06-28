@@ -31,6 +31,28 @@ pub fn ensure_critical_symlinks() {
         home
     ));
 
+    // MAXIMA-LINUX-PORT-MOD: debug/test override. With KYBER_FORCE_STANDALONE_PREFIX
+    // set, skip the Steam resolver and drop any existing Steam symlink so
+    // bf2_wine_prefix_available() goes false and the start_game opt-in path builds
+    // the standalone prefix even on a host that has a real Steam BF2 prefix. Lets the
+    // Non-Steam path be tested without touching the real Steam compatdata (the dir
+    // stays; only the symlink is cleared, and a normal launch restores it).
+    if std::env::var("KYBER_FORCE_STANDALONE_PREFIX")
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+    {
+        if let Ok(meta) = std::fs::symlink_metadata(&link_path) {
+            if meta.file_type().is_symlink() {
+                let _ = std::fs::remove_file(&link_path);
+            }
+        }
+        log::warn!(
+            "KYBER_FORCE_STANDALONE_PREFIX set: skipping Steam compatdata resolver, \
+             standalone prefix will be used"
+        );
+        return;
+    }
+
     // Primary: derive compatdata from BF2's actual install path via the
     // Maxima libraryfolders.vdf resolver. Covers custom Steam library
     // roots (e.g. /home/<user>/Games/Steam) that the hardcoded list
@@ -148,6 +170,72 @@ pub fn bf2_wine_prefix_available() -> bool {
     };
     // Path::exists follows the symlink: true only when the target dir exists.
     PathBuf::from(format!("{}/.local/share/maxima/wine/prefix", home)).exists()
+}
+
+// MAXIMA-LINUX-PORT-MOD: Non-Steam fallback. When no BF2 Steam compatdata
+// exists, point the Maxima wine prefix at a self-managed standalone prefix dir
+// instead of bailing. Only called from the start_game opt-in path (a valid
+// custom game path or KYBER_FORCE_STANDALONE_PREFIX) AFTER the Steam resolver
+// in ensure_critical_symlinks() came up empty, so the Steam path keeps full
+// precedence and is never touched. link_path stays a symlink and the standalone
+// dir is a separate sibling, so if BF2 later gets installed via Steam, the
+// existing stale-symlink reconcile in ensure_critical_symlinks() redirects
+// link_path onto Steam's compatdata with no extra code.
+// Reconcile logic intentionally mirrors ensure_critical_symlinks instead of
+// sharing a helper, to keep the verified Steam path byte-for-byte unchanged.
+pub fn ensure_standalone_prefix() -> Result<(), String> {
+    let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+    let link_path = PathBuf::from(format!("{}/.local/share/maxima/wine/prefix", home));
+    let target =
+        PathBuf::from(format!("{}/.local/share/maxima/wine/prefix-standalone", home));
+
+    if !target.exists() {
+        std::fs::create_dir_all(&target).map_err(|e| {
+            format!("failed to create standalone prefix {}: {}", target.display(), e)
+        })?;
+    }
+
+    if let Ok(meta) = std::fs::symlink_metadata(&link_path) {
+        if meta.file_type().is_symlink() {
+            match std::fs::read_link(&link_path) {
+                Ok(current) if current == target => {
+                    log::warn!(
+                        "Non-Steam standalone wine prefix in use: {} -> {}",
+                        link_path.display(),
+                        target.display()
+                    );
+                    return Ok(());
+                }
+                Ok(_) => {
+                    std::fs::remove_file(&link_path)
+                        .map_err(|e| format!("failed to remove stale prefix symlink: {}", e))?;
+                }
+                Err(e) => return Err(format!("failed to read prefix symlink: {}", e)),
+            }
+        } else {
+            return Err(format!(
+                "{} exists and is not a symlink; refusing to replace it",
+                link_path.display()
+            ));
+        }
+    }
+
+    if let Some(parent) = link_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create {}: {}", parent.display(), e))?;
+        }
+    }
+
+    std::os::unix::fs::symlink(&target, &link_path).map_err(|e| {
+        format!("failed to symlink {} -> {}: {}", link_path.display(), target.display(), e)
+    })?;
+    log::warn!(
+        "Non-Steam standalone wine prefix created: {} -> {}",
+        link_path.display(),
+        target.display()
+    );
+    Ok(())
 }
 
 // Derive BF2's compatdata pfx from the install path Steam reports via
@@ -535,7 +623,7 @@ fn patch_system_reg_for_bf2(prefix: &str) {
         ],
     );
 
-    // EA Games\STAR WARS Battlefront II key — Maxima's is_installed() check
+    // EA Games\STAR WARS Battlefront II key, Maxima's is_installed() check
     // looks here (via the install_check_override from the service layer) to
     // confirm BF2 is installed. Fresh Steam-Proton prefixes don't get this
     // key written automatically (the EA installer never runs), so we set it

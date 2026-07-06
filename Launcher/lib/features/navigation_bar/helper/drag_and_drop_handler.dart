@@ -212,11 +212,14 @@ class DragAndDropHandler {
             linkType: DownloadLinkType.direct,
             size: int.parse(headRequest.headers.value('content-length') ?? '0'),
           );
-          await sl.get<DownloadOrchestrator>().enqueueDownload(request);
-          NotificationService.showNotification(
-            message: 'Queued download for $filename',
-            severity: InfoBarSeverity.info,
-          );
+          final enqueued =
+              await sl.get<DownloadOrchestrator>().enqueueDownload(request);
+          if (enqueued) {
+            NotificationService.showNotification(
+              message: 'Queued download for $filename',
+              severity: InfoBarSeverity.info,
+            );
+          }
           return;
         }
       },

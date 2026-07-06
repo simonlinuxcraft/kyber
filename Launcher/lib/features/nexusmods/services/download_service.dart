@@ -181,7 +181,7 @@ class NexusDownloadService {
     if (apiToken == null || apiToken.isEmpty) {
       logger.warning('No Nexus API token available for Linux download');
       NotificationService.error(
-        message: 'Bitte erst bei Nexus Mods anmelden.',
+        message: 'Please log in to Nexus Mods first.',
       );
       final loggedIn = await showKyberDialog<bool?>(
         context: navigatorKey.currentContext!,
@@ -205,7 +205,7 @@ class NexusDownloadService {
 
     // Park the wait BEFORE opening the browser so a fast click can't
     // race us. Browser click typically takes >1s, but better safe.
-    final waitFuture = ProtocolHelper.awaitNextNxmUrl();
+    final nxmCompleter = ProtocolHelper.awaitNextNxmUrl();
 
     // Open the regular Nexus mod-files page — same URL pattern the
     // working tarball build uses. The "Mod Manager Download" button
@@ -230,10 +230,10 @@ class NexusDownloadService {
         '?tab=files&file_id=$fileId';
 
     NotificationService.showNotification(
-      message: 'Mod-Seite wird im Browser geöffnet. Klick dort auf '
-          '"Mod Manager Download". Falls der Button fehlt: einmalig '
-          'in der Adressleiste "nxm:test" eingeben + "Kyber NXM Handler" '
-          'wählen, danach erscheint der Button auf jeder Mod-Seite.',
+      message: 'Opening the mod page in your browser. Click "Mod '
+          'Manager Download" there. If the button is missing: enter '
+          '"nxm:test" in the address bar once and select "Kyber NXM '
+          'Handler" — the button will then appear on every mod page.',
       severity: InfoBarSeverity.info,
     );
     try {
@@ -242,18 +242,18 @@ class NexusDownloadService {
         mode: LaunchMode.externalApplication,
       );
     } catch (e, s) {
-      ProtocolHelper.cancelPendingNxmWait();
+      ProtocolHelper.cancelPendingNxmWait(nxmCompleter);
       logger.severe('Failed to open Nexus mod page in browser', e, s);
       throw Exception('Cannot open browser to start NXM download flow');
     }
 
     final String nxmUrl;
     try {
-      nxmUrl = await waitFuture.timeout(
+      nxmUrl = await nxmCompleter.future.timeout(
         const Duration(seconds: 180),
       );
     } on TimeoutException {
-      ProtocolHelper.cancelPendingNxmWait();
+      ProtocolHelper.cancelPendingNxmWait(nxmCompleter);
       NotificationService.error(
         message:
             'No NXM response received within 180 seconds. Please click '
@@ -261,7 +261,7 @@ class NexusDownloadService {
       );
       throw Exception('No NXM response received within 180 seconds');
     } catch (e) {
-      ProtocolHelper.cancelPendingNxmWait();
+      ProtocolHelper.cancelPendingNxmWait(nxmCompleter);
       rethrow;
     }
 

@@ -241,6 +241,15 @@ class DownloadOrchestrator with ChangeNotifier {
 
       _logger.info('Enqueued download: ${request.displayName}');
       return true;
+    } on StateError catch (e) {
+      // Superseded by a newer ProtocolHelper.awaitNextNxmUrl() request
+      // (concurrent NXM download) — expected, not a real failure. Log
+      // quietly instead of surfacing the raw exception text.
+      _logger.info(
+        'Download enqueue superseded by a newer request: '
+        '${request.displayName} ($e)',
+      );
+      return false;
     } on Exception catch (e, s) {
       if (e.toString().contains('LoginError')) {
         await showKyberDialog(

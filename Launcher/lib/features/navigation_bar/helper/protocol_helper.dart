@@ -329,18 +329,23 @@ class ProtocolHelper {
 
   /// Register a one-shot listener that captures the next nxm:// URL the
   /// inotify bridge receives instead of routing it through handleCall().
-  /// Caller must own the returned future and time it out itself.
-  static Future<String> awaitNextNxmUrl() {
+  /// Caller owns the returned completer: await `.future` yourself, and
+  /// pass this SAME completer back to [cancelPendingNxmWait] when done,
+  /// so a caller cleaning up after being superseded can't wipe out a
+  /// newer, still-active wait.
+  static Completer<String> awaitNextNxmUrl() {
     _pendingNxmCompleter?.completeError(
       StateError('superseded by newer nxm await'),
     );
     final c = Completer<String>();
     _pendingNxmCompleter = c;
-    return c.future;
+    return c;
   }
 
-  static void cancelPendingNxmWait() {
-    _pendingNxmCompleter = null;
+  static void cancelPendingNxmWait(Completer<String> completer) {
+    if (identical(_pendingNxmCompleter, completer)) {
+      _pendingNxmCompleter = null;
+    }
   }
 
   static String _linuxRuntimeDir() {

@@ -77,11 +77,15 @@ class _FileDownloadDialogState extends State<FileDownloadDialog> {
               displayName: widget.file.name,
             );
 
-            await sl.get<DownloadOrchestrator>().enqueueDownload(request);
+            final enqueued = await sl
+                .get<DownloadOrchestrator>()
+                .enqueueDownload(request);
 
-            NotificationService.showNotification(
-              message: 'Downloading mod ${widget.file.name}',
-            );
+            if (enqueued) {
+              NotificationService.showNotification(
+                message: 'Downloading mod ${widget.file.name}',
+              );
+            }
             Navigator.of(context).pop();
           },
         ),

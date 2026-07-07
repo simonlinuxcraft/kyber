@@ -13,6 +13,7 @@ import 'package:kyber_launcher/features/map_rotation/providers/map_rotation_cubi
 import 'package:kyber_launcher/features/maxima/helper/maxima_helper.dart';
 import 'package:kyber_launcher/features/maxima/models/maxima_game_instance.dart';
 import 'package:kyber_launcher/features/mods/services/level_declaration_service.dart';
+import 'package:kyber_launcher/features/server_host/dialogs/host_loopback_warning_dialog.dart';
 import 'package:kyber_launcher/features/server_host/providers/host_collection_cubit.dart';
 import 'package:kyber_launcher/features/server_host/widgets/settings_box/server_settings_box.dart';
 import 'package:kyber_launcher/features/server_moderation/providers/moderation_cubit.dart';
@@ -238,6 +239,10 @@ class SettingsBoxHeader extends StatelessWidget {
                             NotificationService.showNotification(
                               message: 'Server updated',
                             );
+                            return;
+                          }
+
+                          if (!await HostLoopbackWarning.confirm(context)) {
                             return;
                           }
 

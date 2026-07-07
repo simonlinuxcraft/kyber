@@ -141,7 +141,7 @@ class IngameViewCubit extends Cubit<IngameViewState> {
         onError: (dynamic e, StackTrace s) {
           NotificationService.showNotification(
             title: 'Server error',
-            message: 'An error occurred while communicating with the server',
+            message: 'Lost connection to the server: $e',
           );
           _logger.severe('Stream error', e, s);
           unloadServer();
@@ -180,7 +180,7 @@ class IngameViewCubit extends Cubit<IngameViewState> {
       _logger.severe('Socket error:', e, s);
       NotificationService.showNotification(
         title: 'Server error',
-        message: 'An error occurred while communicating with the server',
+        message: 'Cannot reach the server: ${e.osError?.message ?? e.message}',
         severity: InfoBarSeverity.error,
       );
       unloadServer();
@@ -188,7 +188,7 @@ class IngameViewCubit extends Cubit<IngameViewState> {
       _logger.severe('Error loading server:', e, s);
       NotificationService.showNotification(
         title: 'Server error',
-        message: 'An error occurred while communicating with the server',
+        message: 'Server communication failed: $e',
         severity: InfoBarSeverity.error,
       );
       unloadServer();

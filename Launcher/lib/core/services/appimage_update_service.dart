@@ -23,6 +23,7 @@
 //   }
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -190,22 +191,25 @@ class AppImageUpdateService {
     // awaits this check cannot hang on it (the check runs before the onboarding
     // dialogs). receive/send guard a slow-but-alive endpoint.
     final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 10)));
-    final response = await dio.get<dynamic>(
+    // GitHub serves release assets as application/octet-stream, so Dio's
+    // ResponseType.json leaves the body as an undecoded String and the manifest
+    // never parses. Fetch it as text and decode it ourselves.
+    final response = await dio.get<String>(
       url,
       options: Options(
-        responseType: ResponseType.json,
+        responseType: ResponseType.plain,
         receiveTimeout: const Duration(seconds: 30),
         sendTimeout: const Duration(seconds: 30),
       ),
     );
-    final data = response.data;
-    if (data is! Map<String, dynamic>) {
+    final decoded = json.decode(response.data ?? '');
+    if (decoded is! Map<String, dynamic>) {
       throw FormatException(
         'manifest endpoint did not return a JSON object: '
-        '${data.runtimeType}',
+        '${decoded.runtimeType}',
       );
     }
-    return AppImageUpdateManifest.fromJson(data);
+    return AppImageUpdateManifest.fromJson(decoded);
   }
 
   /// Downloads the manifest's AppImage to a staging file next to the

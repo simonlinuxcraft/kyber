@@ -10,6 +10,12 @@ enum ModScope {
   all,
   gameplay,
   cosmetic,
+
+  /// Mods that are installed more than once under the same name and version,
+  /// which happens easily when the same mod arrives through a collection and
+  /// through a separate download. Selecting them here is the way to get rid
+  /// of the extra copies with the delete button.
+  duplicates,
 }
 
 class ModsFilter {

@@ -16,6 +16,7 @@ import 'package:kyber_launcher/features/mods/dialogs/image_crop_dialog.dart';
 import 'package:kyber_launcher/features/mods/providers/collection_editor_cubit.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
 import 'package:kyber_launcher/features/mods/widgets/collection_list/collection_icon.dart';
+import 'package:kyber_launcher/features/plugin_manager/plugins/bsm_linux_host.dart';
 import 'package:kyber_launcher/features/plugin_manager/services/plugin_manager.dart';
 import 'package:kyber_launcher/gen/assets.gen.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
@@ -302,6 +303,17 @@ class _CollectionBoxState extends State<CollectionBox> {
                                           basename(result),
                                         );
                                         await File(result).copy(newPath);
+
+                                        // Each run stamps a new file name, so
+                                        // the pack generated last time has to
+                                        // go or both end up in the mod list.
+                                        if (Platform.isLinux) {
+                                          await BsmLinuxHost.pruneOlderPacks(
+                                            modsDir: ModService.getBasePath(),
+                                            packName: collection.title,
+                                            keepPath: newPath,
+                                          );
+                                        }
                                         await sl.get<ModService>().refresh();
 
                                         final mod = sl

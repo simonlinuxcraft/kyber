@@ -64,16 +64,33 @@ class CollectionArchiveService {
       final added = <String>[];
       final skipped = <String>[];
 
+      // Mods already on disk, by file name and by size, so a copy that only
+      // differs in its folder is recognised as the same file instead of
+      // being added a second time.
+      final installed = <String>{};
+      final installedSizes = <int>{};
+      for (final entry in Directory(modsDir).listSync(recursive: true)) {
+        if (entry is! File || !entry.path.endsWith('.fbmod')) continue;
+        installed.add(p.basename(entry.path).toLowerCase());
+        installedSizes.add(entry.lengthSync());
+      }
+
       for (final file in unpacked) {
         if (identical(file, definition) || file.path == definition.path) {
           continue;
         }
         final name = p.basename(file.path);
         final target = File(p.join(modsDir, name));
-        if (target.existsSync()) {
+
+        final alreadyThere =
+            target.existsSync() ||
+            (installed.contains(name.toLowerCase()) &&
+                installedSizes.contains(file.lengthSync()));
+        if (alreadyThere) {
           skipped.add(name);
           continue;
         }
+
         await file.copy(target.path);
         added.add(name);
       }

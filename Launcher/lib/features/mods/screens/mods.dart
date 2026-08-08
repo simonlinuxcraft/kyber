@@ -30,6 +30,7 @@ import 'package:kyber_launcher/features/mods/widgets/mod_info_box.dart';
 import 'package:kyber_launcher/features/mods/widgets/mod_list/mod_list.dart';
 import 'package:kyber_launcher/features/mods/widgets/mod_list/mod_list_header.dart';
 import 'package:kyber_launcher/features/nexusmods/services/nexusmods_service.dart';
+import 'package:kyber_launcher/features/plugin_manager/plugins/bsm_linux_host.dart';
 import 'package:kyber_launcher/features/plugin_manager/services/plugin_manager.dart';
 import 'package:kyber_launcher/gen/assets.gen.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
@@ -786,8 +787,15 @@ class _SaberManagerButtonState extends State<_SaberManagerButton> {
       );
       if (result.isEmpty) return;
 
-      await File(result).copy(
-        p.join(ModService.getBasePath(), p.basename(result)),
+      final target = p.join(ModService.getBasePath(), p.basename(result));
+      await File(result).copy(target);
+
+      // Every run writes a differently stamped file, so without this the old
+      // packs stay behind and the mod list fills up with copies.
+      await BsmLinuxHost.pruneOlderPacks(
+        modsDir: ModService.getBasePath(),
+        packName: 'BetterSabers',
+        keepPath: target,
       );
       await sl.get<ModService>().refresh();
 

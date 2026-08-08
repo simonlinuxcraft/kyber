@@ -301,6 +301,56 @@ class BsmLinuxHost {
   static String toWindowsPath(String unixPath) =>
       'Z:${unixPath.replaceAll('/', r'\')}';
 
+  /// Deletes earlier generated packs of the same name, keeping [keepPath].
+  ///
+  /// The manager stamps every pack it writes with a random suffix, so
+  /// generating twice leaves two files that carry the same mod name and
+  /// version. They pile up in the mods folder and show up twice in a
+  /// collection, where only the newest one is meant to be used.
+  static Future<List<String>> pruneOlderPacks({
+    required String modsDir,
+    required String packName,
+    required String keepPath,
+  }) async {
+    final removed = <String>[];
+    final keep = p.normalize(keepPath);
+
+    for (final dir in [Directory(modsDir), ..._packDirectories()]) {
+      if (!dir.existsSync()) continue;
+      for (final entry in dir.listSync()) {
+        if (entry is! File) continue;
+        final name = p.basename(entry.path);
+        if (!name.startsWith('$packName.') ||
+            !name.endsWith('.bsm.fbmod') ||
+            p.normalize(entry.path) == keep) {
+          continue;
+        }
+        try {
+          await entry.delete();
+          removed.add(name);
+        } on Object catch (e) {
+          _logger.warning('Could not remove the old pack $name: $e');
+        }
+      }
+    }
+
+    if (removed.isNotEmpty) {
+      _logger.info('Removed ${removed.length} older Better Sabers packs');
+    }
+    return removed;
+  }
+
+  /// The manager's output folders inside the prefix, one per prefix user.
+  static Iterable<Directory> _packDirectories() sync* {
+    final users = Directory(p.join(prefixDir, 'drive_c', 'users'));
+    if (!users.existsSync()) return;
+    for (final user in users.listSync().whereType<Directory>()) {
+      yield Directory(
+        p.join(user.path, 'AppData', 'Roaming', 'BetterSabersManager', 'Temp'),
+      );
+    }
+  }
+
   /// Helper calls finish in seconds, but a stuck wineserver or umu.lock
   /// contention can hang forever. Maxima bounds its own helper calls the
   /// same way; the manager itself is exempt because the user decides when
@@ -346,13 +396,8 @@ class BsmLinuxHost {
   /// The manager writes its output under the prefix user's AppData. Proton
   /// calls that user `steamuser`, a plain Wine prefix uses the login name.
   static List<File> _packsFor(String packName) {
-    final users = Directory(p.join(prefixDir, 'drive_c', 'users'));
-    if (!users.existsSync()) return [];
     final found = <File>[];
-    for (final user in users.listSync().whereType<Directory>()) {
-      final temp = Directory(
-        p.join(user.path, 'AppData', 'Roaming', 'BetterSabersManager', 'Temp'),
-      );
+    for (final temp in _packDirectories()) {
       if (!temp.existsSync()) continue;
       found.addAll(
         temp.listSync().whereType<File>().where(

@@ -79,9 +79,32 @@ class ModsListCubit extends Cubit<ModsListState> {
     );
   }
 
+  /// Name and version identify a mod regardless of which folder it landed in,
+  /// so the same mod pulled twice through different routes shares this key.
+  static String _identity(FrostyMod mod) =>
+      '${mod.details.name.toLowerCase()}|${mod.details.version.toLowerCase()}';
+
+  static Set<String> _duplicateIdentities(List<FrostyMod> mods) {
+    final seen = <String, int>{};
+    for (final mod in mods) {
+      // Packs bundle other mods and legitimately repeat their names.
+      if (mod.isCollection) continue;
+      final key = _identity(mod);
+      seen[key] = (seen[key] ?? 0) + 1;
+    }
+    return seen.entries
+        .where((e) => e.value > 1)
+        .map((e) => e.key)
+        .toSet();
+  }
+
   List<FrostyMod> _applyFilter(List<FrostyMod> mods, ModsFilter filter) {
     final q = filter.query?.trim();
     final qLower = (q == null || q.isEmpty) ? null : q.toLowerCase();
+
+    final duplicates = filter.scope == ModScope.duplicates
+        ? _duplicateIdentities(mods)
+        : const <String>{};
 
     final out =
         mods.where((mod) {
@@ -105,6 +128,8 @@ class ModsListCubit extends Cubit<ModsListState> {
             ModScope.cosmetic => !kRequiredCategories.contains(
               mod.details.category.toLowerCase(),
             ),
+            ModScope.duplicates =>
+              !mod.isCollection && duplicates.contains(_identity(mod)),
           };
 
           return matchesSearch && matchesScope;

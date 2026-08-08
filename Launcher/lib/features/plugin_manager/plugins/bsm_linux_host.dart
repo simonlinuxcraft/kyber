@@ -260,10 +260,16 @@ class BsmLinuxHost {
     // and the pack name is the last argument without '.fbmod' in it. It also
     // only accepts entries ending in .fbmod that exist relative to the mod
     // directory, so paths go in with Windows separators.
-    final entries = mods
-        .where((m) => m.endsWith('.fbmod'))
-        .map((m) => m.replaceAll('/', r'\'))
-        .toList();
+    final usable = mods.where((m) => m.endsWith('.fbmod')).where((m) {
+      if (!_hasWebpScreenshot(p.join(modsDir, m))) return true;
+      _logger.warning(
+        'Skipping $m: its screenshot is a WebP, which Wine cannot decode. '
+        'The manager would abort loading over it.',
+      );
+      return false;
+    });
+
+    final entries = usable.map((m) => m.replaceAll('/', r'\')).toList();
 
     // Freeze the timestamps now. Keeping File handles around and stat'ing
     // them again afterwards would read the state after the run, so an
@@ -357,6 +363,47 @@ class BsmLinuxHost {
       );
     }
     return found;
+  }
+
+  /// Whether the mod carries a WebP screenshot.
+  ///
+  /// The manager builds a preview for every mod it loads, and WPF decodes
+  /// images through the Windows Imaging Component. Wine's version has no WebP
+  /// decoder, so such a screenshot fails with WINCODEC_ERR_COMPONENTNOTFOUND
+  /// and takes the entire load down with it, not just that one mod. Leaving
+  /// those out costs their sabers but keeps the manager usable.
+  ///
+  /// Screenshots sit in the mod header, so reading the first stretch is
+  /// enough; mod files themselves run into the hundreds of megabytes.
+  static bool _hasWebpScreenshot(String modPath) {
+    final file = File(modPath);
+    if (!file.existsSync()) return false;
+
+    RandomAccessFile? handle;
+    try {
+      handle = file.openSync();
+      final head = handle.readSync(2 * 1024 * 1024);
+      for (var i = 0; i + 12 <= head.length; i++) {
+        if (head[i] != 0x52 || // 'R'
+            head[i + 1] != 0x49 || // 'I'
+            head[i + 2] != 0x46 || // 'F'
+            head[i + 3] != 0x46) {
+          continue;
+        }
+        if (head[i + 8] == 0x57 && // 'W'
+            head[i + 9] == 0x45 && // 'E'
+            head[i + 10] == 0x42 && // 'B'
+            head[i + 11] == 0x50) {
+          return true;
+        }
+      }
+      return false;
+    } on Object catch (e) {
+      _logger.warning('Could not inspect $modPath: $e');
+      return false;
+    } finally {
+      handle?.closeSync();
+    }
   }
 
   static int _indexOfSequence(Uint8List haystack, Uint8List needle) {

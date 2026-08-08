@@ -1,31 +1,49 @@
 import 'dart:io';
 
+import 'package:archive/archive_io.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
-import 'package:kyber_launcher/gen/rust/api/archive.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-/// Imports the tar archives written by "EXPORT COLLECTION TAR".
+/// Brings shared collections back in, in either of the two shapes they are
+/// passed around in.
 ///
-/// Such an archive holds the collection definition (`.kbcollection`) next to
-/// every mod file it refers to, so unlike a bare definition it can be
-/// imported without hunting the mods down on Nexus one by one.
+/// A bare `.kbcollection` is just the definition, the way most collections
+/// are handed out; the mods it lists have to be present already. The tar
+/// written by "EXPORT COLLECTION TAR" carries the definition together with
+/// every mod file, so it needs no downloads at all.
 class CollectionArchiveService {
   CollectionArchiveService._();
 
   static final _logger = Logger('collection_archive');
 
+  static const definitionExtension = '.kbcollection';
+
   /// Unpacks [archivePath] and moves the mod files into the mods folder.
-  /// Returns the extracted collection definition, ready to be handed to the
-  /// import screen.
+  /// Returns the collection definition, ready to be handed to the import
+  /// screen.
   ///
   /// Existing mod files are left untouched: an archive should never quietly
   /// replace a mod the user already has.
   static Future<CollectionImportResult> import(String archivePath) async {
+    // A definition on its own needs no unpacking, it is already the file the
+    // import screen wants.
+    if (archivePath.endsWith(definitionExtension)) {
+      _logger.info('Importing collection definition ${p.basename(archivePath)}');
+      return CollectionImportResult(
+        definitionPath: archivePath,
+        added: const [],
+        skipped: const [],
+        keepsDefinition: true,
+      );
+    }
+
     final staging = await Directory.systemTemp.createTemp('kyber_collection');
 
     try {
-      await extract(filePath: archivePath, targetDir: staging.path);
+      // Reads the archive off disk rather than into memory: a collection
+      // export runs into the gigabytes. Handles tar and zip alike.
+      await extractFileToDisk(archivePath, staging.path);
 
       final unpacked = staging
           .listSync(recursive: true)
@@ -33,7 +51,7 @@ class CollectionArchiveService {
           .toList();
 
       final definition = unpacked
-          .where((f) => f.path.endsWith('.kbcollection'))
+          .where((f) => f.path.endsWith(definitionExtension))
           .firstOrNull;
       if (definition == null) {
         throw const CollectionArchiveException(
@@ -84,10 +102,12 @@ class CollectionArchiveService {
     }
   }
 
-  /// Removes the definition file again once the import screen is done with
-  /// it, so it does not linger among the mods.
-  static Future<void> discardDefinition(String definitionPath) async {
-    final file = File(definitionPath);
+  /// Removes the copy the import left in the mods folder once the import
+  /// screen is done with it. A definition the user picked themselves stays
+  /// where it is.
+  static Future<void> cleanUp(CollectionImportResult result) async {
+    if (result.keepsDefinition) return;
+    final file = File(result.definitionPath);
     if (file.existsSync()) await file.delete();
   }
 }
@@ -97,11 +117,16 @@ class CollectionImportResult {
     required this.definitionPath,
     required this.added,
     required this.skipped,
+    this.keepsDefinition = false,
   });
 
   final String definitionPath;
   final List<String> added;
   final List<String> skipped;
+
+  /// True when the file belongs to the user and must not be deleted, which
+  /// is the case for a definition they picked directly.
+  final bool keepsDefinition;
 }
 
 class CollectionArchiveException implements Exception {

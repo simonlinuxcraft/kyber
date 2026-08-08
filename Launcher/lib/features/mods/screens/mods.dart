@@ -464,7 +464,7 @@ class _ImportCollectionButtonState extends State<_ImportCollectionButton> {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Import a collection archive',
+      message: 'Import a collection (.kbcollection or .tar)',
       child: SizedBox(
         width: 45,
         child: KyberTabBar(
@@ -487,9 +487,9 @@ class _ImportCollectionButtonState extends State<_ImportCollectionButton> {
 
   Future<void> _import() async {
     final picked = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Select a collection archive',
+      dialogTitle: 'Select a collection or collection archive',
       type: FileType.custom,
-      allowedExtensions: ['tar'],
+      allowedExtensions: ['kbcollection', 'tar'],
     );
     final path = picked?.files.single.path;
     if (path == null) return;
@@ -499,19 +499,21 @@ class _ImportCollectionButtonState extends State<_ImportCollectionButton> {
       final result = await CollectionArchiveService.import(path);
       await sl.get<ModService>().refresh();
 
-      NotificationService.showNotification(
-        message: result.skipped.isEmpty
-            ? '${result.added.length} mods imported'
-            : '${result.added.length} mods imported, '
-                  '${result.skipped.length} were already installed',
-        severity: InfoBarSeverity.success,
-      );
+      if (result.added.isNotEmpty || result.skipped.isNotEmpty) {
+        NotificationService.showNotification(
+          message: result.skipped.isEmpty
+              ? '${result.added.length} mods imported'
+              : '${result.added.length} mods imported, '
+                    '${result.skipped.length} were already installed',
+          severity: InfoBarSeverity.success,
+        );
+      }
 
       await router.pushNamed(
         'collection_import',
         queryParameters: {'path': result.definitionPath},
       );
-      await CollectionArchiveService.discardDefinition(result.definitionPath);
+      await CollectionArchiveService.cleanUp(result);
     } on Object catch (e) {
       NotificationService.showNotification(
         message: '$e',

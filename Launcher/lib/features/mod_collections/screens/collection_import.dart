@@ -7,6 +7,17 @@ import 'package:kyber_launcher/core/config/colors.dart';
 import 'package:kyber_launcher/core/routing/app_router.dart';
 import 'package:kyber_launcher/features/mods/helper/mod_helper.dart';
 import 'package:kyber_launcher/features/settings/dialogs/chromium_download_dialog.dart';
+import 'package:collection/collection.dart';
+import 'package:kyber_launcher/core/services/notification_service.dart';
+import 'package:kyber_launcher/features/download_manager/models/download_link_type.dart' as dl;
+import 'package:kyber_launcher/features/download_manager/models/download_request.dart';
+import 'package:kyber_launcher/features/download_manager/services/download_orchestrator.dart';
+import 'package:kyber_launcher/features/mods/services/mod_service.dart';
+import 'package:kyber_launcher/features/nexusmods/services/nexusmods_service.dart';
+import 'package:kyber_launcher/injection_container.dart';
+import 'package:kyber_launcher/main.dart';
+import 'package:logging/logging.dart';
+import 'package:uuid/uuid.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/shared/ui/buttons/button.dart';
 import 'package:kyber_launcher/shared/ui/elements/kyber_event_container.dart';
@@ -23,6 +34,13 @@ class CollectionImport extends StatefulWidget {
 
 class _CollectionImportState extends State<CollectionImport> {
   ModCollectionMetaData? _metaData;
+  bool _importing = false;
+
+  int get _missingCount =>
+      _metaData?.mods
+          .where((m) => !ModHelper.isInstalled(m.name, m.version))
+          .length ??
+      0;
 
   @override
   void initState() {
@@ -34,6 +52,99 @@ class _CollectionImportState extends State<CollectionImport> {
       setState(() => _metaData = value);
     });
     super.initState();
+  }
+
+  /// Adds the collection to the launcher, whether or not every mod is there.
+  ///
+  /// Installed mods are pointed at their local file so they work right away.
+  /// Missing ones stay in the collection with their download link and show up
+  /// marked, the same way they do on this screen. Downloads are only queued
+  /// for premium accounts, because that is the only case where Nexus hands
+  /// the file over without the download being confirmed on the site.
+  Future<void> _import() async {
+    final collection = _metaData;
+    if (collection == null) return;
+
+    setState(() => _importing = true);
+    final premium = sl.get<NexusModsService>().nexusUser?.isPremium ?? false;
+    var queued = 0;
+    var missing = 0;
+
+    try {
+      for (var i = 0; i < collection.mods.length; i++) {
+        final mod = collection.mods[i];
+
+        if (ModHelper.isInstalled(mod.name, mod.version)) {
+          final localMod = sl
+              .get<ModService>()
+              .mods
+              .where(
+                (m) =>
+                    m.details.name == mod.name &&
+                    m.details.version == mod.version,
+              )
+              .firstOrNull;
+          if (localMod != null) {
+            collection.mods[i] = mod.copyWith(filename: localMod.filename);
+            continue;
+          }
+        }
+
+        // Keeps name, version and link, so the entry stays in the collection
+        // and is shown as missing until the mod turns up.
+        collection.mods[i] = CollectionMod(
+          name: mod.name,
+          version: mod.version,
+          link: mod.link,
+        );
+        missing++;
+
+        if (!premium || mod.link.isEmpty) continue;
+        try {
+          await sl.get<DownloadOrchestrator>().enqueueDownload(
+            DownloadRequest(
+              link: mod.link,
+              displayName: mod.name,
+              linkType: mod.link.startsWith('https://www.nexusmods')
+                  ? dl.DownloadLinkType.nexus
+                  : dl.DownloadLinkType.direct,
+            ),
+          );
+          queued++;
+        } on Object catch (e) {
+          Logger.root.warning('Could not queue ${mod.name}', e);
+        }
+      }
+
+      final id = const Uuid().v4();
+      await collectionBox.put(id, collection.copyWith(localId: id));
+
+      final String message;
+      if (missing == 0) {
+        message = 'Added ${collection.title}';
+      } else if (queued > 0) {
+        message = 'Added ${collection.title}, downloading $queued mods';
+      } else {
+        message =
+            'Added ${collection.title}, $missing mods are still missing '
+            'and stay marked in the collection';
+      }
+
+      NotificationService.showNotification(
+        message: message,
+        severity: missing == 0 || queued > 0
+            ? InfoBarSeverity.success
+            : InfoBarSeverity.warning,
+      );
+      router.pop();
+    } on Object catch (e) {
+      NotificationService.showNotification(
+        message: 'Could not add the collection: $e',
+        severity: InfoBarSeverity.error,
+      );
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
   }
 
   @override
@@ -146,8 +257,12 @@ class _CollectionImportState extends State<CollectionImport> {
               onPressed: router.pop,
             ),
             KyberButton(
-              text: 'DOWNLOAD COLLECTION MODS',
-              onPressed: () {},
+              text: _missingCount == 0
+                  ? 'ADD COLLECTION'
+                  : (sl.get<NexusModsService>().nexusUser?.isPremium ?? false)
+                        ? 'DOWNLOAD COLLECTION MODS'
+                        : 'ADD COLLECTION ANYWAY',
+              onPressed: _importing ? null : _import,
             ),
           ],
         ),

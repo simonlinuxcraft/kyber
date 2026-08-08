@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' as mt;
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import 'package:kyber_launcher/core/routing/app_router.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/maxima/models/maxima_game_instance.dart';
 import 'package:kyber_launcher/features/maxima/providers/maxima_cubit.dart';
+import 'package:kyber_launcher/features/mod_collections/services/collection_archive_service.dart';
 import 'package:kyber_launcher/features/mod_browser/providers/mod_browser_cubit.dart';
 import 'package:kyber_launcher/features/mod_browser/providers/mod_search_cubit.dart';
 import 'package:kyber_launcher/features/mod_browser/screens/mod_browser.dart';
@@ -408,7 +410,22 @@ class _CollectionsHeader extends StatelessWidget {
     return Container(
       height: 61,
       padding: const EdgeInsets.all(13),
-      child: const Column(
+      child: Row(
+        children: [
+          const Expanded(child: _CollectionsHeaderText()),
+          _ImportCollectionButton(),
+        ],
+      ),
+    );
+  }
+}
+
+class _CollectionsHeaderText extends StatelessWidget {
+  const _CollectionsHeaderText();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -429,8 +446,80 @@ class _CollectionsHeader extends StatelessWidget {
             ),
           ),
         ],
+      );
+  }
+}
+
+/// Counterpart to "EXPORT COLLECTION TAR": takes such an archive back in,
+/// mod files included, and hands the collection to the import screen.
+class _ImportCollectionButton extends StatefulWidget {
+  @override
+  State<_ImportCollectionButton> createState() =>
+      _ImportCollectionButtonState();
+}
+
+class _ImportCollectionButtonState extends State<_ImportCollectionButton> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Import a collection archive',
+      child: SizedBox(
+        width: 45,
+        child: KyberTabBar(
+          selectedIndex: -1,
+          onChanged: _busy ? null : (_) => _import(),
+          tabs: [
+            if (_busy)
+              const SizedBox(
+                width: 15,
+                height: 15,
+                child: ProgressRing(strokeWidth: 2),
+              )
+            else
+              const Icon(mt.Icons.unarchive),
+          ],
+        ),
       ),
     );
+  }
+
+  Future<void> _import() async {
+    final picked = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Select a collection archive',
+      type: FileType.custom,
+      allowedExtensions: ['tar'],
+    );
+    final path = picked?.files.single.path;
+    if (path == null) return;
+
+    setState(() => _busy = true);
+    try {
+      final result = await CollectionArchiveService.import(path);
+      await sl.get<ModService>().refresh();
+
+      NotificationService.showNotification(
+        message: result.skipped.isEmpty
+            ? '${result.added.length} mods imported'
+            : '${result.added.length} mods imported, '
+                  '${result.skipped.length} were already installed',
+        severity: InfoBarSeverity.success,
+      );
+
+      await router.pushNamed(
+        'collection_import',
+        queryParameters: {'path': result.definitionPath},
+      );
+      await CollectionArchiveService.discardDefinition(result.definitionPath);
+    } on Object catch (e) {
+      NotificationService.showNotification(
+        message: '$e',
+        severity: InfoBarSeverity.error,
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 }
 

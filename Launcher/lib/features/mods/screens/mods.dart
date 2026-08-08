@@ -608,13 +608,23 @@ class _ModUpdateButton extends StatelessWidget {
 
     await service.check(mods);
 
+    final String message;
+    final InfoBarSeverity severity;
+    if (service.failedCount > 0 && service.count == 0) {
+      message = 'Could not reach Nexus for ${service.failedCount} mods';
+      severity = InfoBarSeverity.error;
+    } else if (service.count == 0) {
+      message = 'All mods are up to date';
+      severity = InfoBarSeverity.success;
+    } else {
+      message = '${service.count} mods have a newer version on Nexus'
+          '${service.failedCount > 0 ? ', ${service.failedCount} could not be checked' : ''}';
+      severity = InfoBarSeverity.warning;
+    }
+
     NotificationService.showNotification(
-      message: service.count == 0
-          ? 'All mods are up to date'
-          : '${service.count} mods have a newer version on Nexus',
-      severity: service.count == 0
-          ? InfoBarSeverity.success
-          : InfoBarSeverity.warning,
+      message: message,
+      severity: severity,
     );
   }
 }
@@ -662,16 +672,6 @@ class _SaberManagerButtonState extends State<_SaberManagerButton> {
   Future<void> _open(BuildContext context) async {
     final plugin = sl.get<PluginManager>().bsmPlugin;
     if (plugin == null) return;
-
-    // On Linux the manager runs inside the same Wine prefix as the game, so
-    // opening it mid-session makes two processes fight over one wineserver.
-    if (Platform.isLinux && sl.isRegistered<MaximaGameInstance>()) {
-      NotificationService.showNotification(
-        message: 'Close the game before opening Better Sabers',
-        severity: InfoBarSeverity.warning,
-      );
-      return;
-    }
 
     setState(() => _busy = true);
 

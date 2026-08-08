@@ -5,6 +5,8 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:kyber_collection/kyber_collection.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
+import 'package:kyber_launcher/features/maxima/models/maxima_game_instance.dart';
+import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/features/plugin_manager/plugins/bsm_linux_host.dart';
 import 'package:path/path.dart' as p;
 
@@ -88,19 +90,20 @@ class BSMPlugin {
     List<String> mods,
     String packName,
   ) async {
-    await BsmLinuxHost.ensureDotnet();
-    final exe = await BsmLinuxHost.extractManager(path);
-
-    final gamePath = Preferences.general.customGamePath;
-    if (gamePath != null && gamePath.isNotEmpty) {
-      await BsmLinuxHost.writeGamePath(gamePath);
+    // The manager shares the game's Wine prefix, so both fighting over one
+    // wineserver ends badly. Guarding here covers every caller.
+    if (sl.isRegistered<MaximaGameInstance>()) {
+      throw const BsmHostException(
+        'Close the game before opening Better Sabers.',
+      );
     }
 
     final pack = await BsmLinuxHost.openManager(
-      exePath: exe,
+      dllPath: path,
       modsDir: modsDir,
       mods: mods,
       packName: packName,
+      gamePath: Preferences.general.customGamePath,
     );
     return pack ?? '';
   }

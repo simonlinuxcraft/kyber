@@ -73,6 +73,11 @@ class BsmLinuxHost {
     if (!installer.existsSync()) {
       _logger.info('Downloading the .NET desktop runtime for Better Sabers');
       await installer.parent.create(recursive: true);
+
+      // Download to a scratch name and only then take the real one. A
+      // connection that drops halfway would otherwise leave a truncated
+      // installer behind that looks complete to the next run.
+      final partial = File('${installer.path}.part');
       final client = HttpClient();
       try {
         final request = await client.getUrl(Uri.parse(_dotnetInstallerUrl));
@@ -83,19 +88,42 @@ class BsmLinuxHost {
             '(HTTP ${response.statusCode}).',
           );
         }
-        await response.pipe(installer.openWrite());
+
+        final sink = partial.openWrite();
+        try {
+          await response.pipe(sink);
+        } finally {
+          await sink.close();
+        }
+
+        final written = await partial.length();
+        final expected = response.contentLength;
+        if (expected > 0 && written != expected) {
+          throw BsmHostException(
+            'The .NET runtime download stopped early '
+            '($written of $expected bytes).',
+          );
+        }
+        await partial.rename(installer.path);
+      } on Object {
+        if (partial.existsSync()) await partial.delete();
+        rethrow;
       } finally {
         client.close();
       }
     }
 
     _logger.info('Installing the .NET desktop runtime into the prefix');
-    await _umu('runinprefix', [
-      r'C:\kyber-plugins\dotnet-desktop.exe',
-      '/install',
-      '/quiet',
-      '/norestart',
-    ]);
+    await _umu(
+      'runinprefix',
+      [
+        r'C:\kyber-plugins\dotnet-desktop.exe',
+        '/install',
+        '/quiet',
+        '/norestart',
+      ],
+      timeout: _helperTimeout,
+    );
 
     if (!dotnetReady) {
       throw const BsmHostException(
@@ -134,8 +162,23 @@ class BsmLinuxHost {
     // Everything from the embedded exe to the end of the DLL. The bundle
     // reader seeks by the header offset, so trailing bytes are harmless and
     // save parsing the file table.
+    //
+    // Written next to the target and renamed into place: a write cut short
+    // would otherwise leave a broken exe that, thanks to its fresh mtime,
+    // passes the "already current" check above forever.
     await exe.parent.create(recursive: true);
-    await exe.writeAsBytes(Uint8List.sublistView(bytes, start), flush: true);
+    final partial = File('${exe.path}.part');
+    try {
+      await partial.writeAsBytes(
+        Uint8List.sublistView(bytes, start),
+        flush: true,
+      );
+      await partial.rename(exe.path);
+    } on Object {
+      if (partial.existsSync()) await partial.delete();
+      rethrow;
+    }
+
     _logger.info(
       'Extracted Better Sabers manager (${bytes.length - start} bytes)',
     );
@@ -148,38 +191,52 @@ class BsmLinuxHost {
     final dir = FileSystemEntity.isFileSync(gamePath)
         ? p.dirname(gamePath)
         : gamePath;
-    await _umu('runinprefix', [
-      'reg',
-      'add',
-      r'HKLM\SOFTWARE\EA Games\STAR WARS Battlefront II',
-      '/v',
-      'Install Dir',
-      '/d',
-      toWindowsPath(dir),
-      '/f',
-      '/reg:64',
-    ]);
+    await _umu(
+      'runinprefix',
+      [
+        'reg',
+        'add',
+        r'HKLM\SOFTWARE\EA Games\STAR WARS Battlefront II',
+        '/v',
+        'Install Dir',
+        '/d',
+        toWindowsPath(dir),
+        '/f',
+        '/reg:64',
+      ],
+      timeout: _helperTimeout,
+    );
   }
 
-  /// True while a manager window is open. Starting a second one breaks the
-  /// first: both unpack their Frosty libraries into the same AppData folder
-  /// and the second fails on the file the first one holds open.
+  /// True from the first preparation step until the manager window closes.
+  ///
+  /// Guards more than the window itself: there are two entry points in the
+  /// UI, and the setup steps before the window all write to fixed paths in
+  /// the prefix. Two of them at once would download the runtime twice into
+  /// the same file and unpack the manager on top of itself.
   static bool get isRunning => _running;
   static bool _running = false;
 
-  /// Opens the manager and waits for the user to close it. Returns the pack
-  /// it generated, or null when the user closed it without generating.
+  /// Runs the whole sequence under one lock: runtime, extraction, game path,
+  /// then the window. Returns the pack the manager generated, or null when
+  /// the user closed it without generating.
   static Future<String?> openManager({
-    required String exePath,
+    required String dllPath,
     required String modsDir,
     required List<String> mods,
     required String packName,
+    String? gamePath,
   }) async {
     if (_running) {
       throw const BsmHostException('Better Sabers is already open.');
     }
     _running = true;
     try {
+      await ensureDotnet();
+      final exePath = await extractManager(dllPath);
+      if (gamePath != null && gamePath.isNotEmpty) {
+        await writeGamePath(gamePath);
+      }
       return await _runManager(
         exePath: exePath,
         modsDir: modsDir,
@@ -208,7 +265,13 @@ class BsmLinuxHost {
         .map((m) => m.replaceAll('/', r'\'))
         .toList();
 
-    final before = _packsFor(packName);
+    // Freeze the timestamps now. Keeping File handles around and stat'ing
+    // them again afterwards would read the state after the run, so an
+    // overwritten pack of the same name would compare equal to itself.
+    final before = {
+      for (final f in _packsFor(packName)) f.path: f.statSync().modified,
+    };
+
     await _umu('waitforexitandrun', [
       exePath,
       toWindowsPath(modsDir),
@@ -222,12 +285,9 @@ class BsmLinuxHost {
       (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
     );
     final newest = after.first;
-    final isNew = !before.any((f) => f.path == newest.path) ||
-        before
-            .firstWhere((f) => f.path == newest.path)
-            .statSync()
-            .modified
-            .isBefore(newest.statSync().modified);
+    final previous = before[newest.path];
+    final isNew =
+        previous == null || previous.isBefore(newest.statSync().modified);
     return isNew ? newest.path : null;
   }
 
@@ -235,8 +295,18 @@ class BsmLinuxHost {
   static String toWindowsPath(String unixPath) =>
       'Z:${unixPath.replaceAll('/', r'\')}';
 
-  static Future<void> _umu(String verb, List<String> args) async {
-    final result = await Process.run(
+  /// Helper calls finish in seconds, but a stuck wineserver or umu.lock
+  /// contention can hang forever. Maxima bounds its own helper calls the
+  /// same way; the manager itself is exempt because the user decides when
+  /// to close it.
+  static const _helperTimeout = Duration(minutes: 10);
+
+  static Future<void> _umu(
+    String verb,
+    List<String> args, {
+    Duration? timeout,
+  }) async {
+    final call = Process.run(
       _umuBin,
       args,
       environment: {
@@ -252,6 +322,16 @@ class BsmLinuxHost {
         'LC_ALL': 'en_US.UTF-8',
       },
     );
+    final result = timeout == null
+        ? await call
+        : await call.timeout(
+            timeout,
+            onTimeout: () => throw BsmHostException(
+              'Wine did not answer within ${timeout.inMinutes} minutes. '
+              'A previous session may still be running.',
+            ),
+          );
+
     if (result.exitCode != 0) {
       _logger.warning('umu $verb exited ${result.exitCode}: ${result.stderr}');
     }

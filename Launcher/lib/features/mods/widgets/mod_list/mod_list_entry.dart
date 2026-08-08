@@ -12,6 +12,11 @@ import 'package:kyber_launcher/features/mods/providers/collection_editor_cubit.d
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
 import 'package:kyber_launcher/features/server_browser/widgets/server_list/server_list_header.dart';
 import 'package:kyber_launcher/features/settings/dialogs/chromium_download_dialog.dart';
+import 'package:kyber_launcher/core/services/notification_service.dart';
+import 'package:kyber_launcher/features/download_manager/models/download_request.dart';
+import 'package:kyber_launcher/features/download_manager/services/download_orchestrator.dart';
+import 'package:kyber_launcher/features/nexusmods/services/nexusmods_service.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 import 'package:kyber_launcher/gen/assets.gen.dart';
 import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
 import 'package:kyber_launcher/injection_container.dart';
@@ -440,8 +445,11 @@ class Selector extends StatelessWidget {
   }
 }
 
-/// Marks a mod whose Nexus page carries a newer file than the one installed.
-/// Stays invisible until [ModUpdateService.check] has actually run.
+/// Marks a mod whose Nexus page carries a newer file than the one installed,
+/// and starts fetching it. Premium accounts can pull the file straight
+/// through the API; without premium Nexus wants the download confirmed on
+/// the site, so the page opens instead and the Mod Manager button there
+/// comes back through the nxm handler.
 class _UpdateBadge extends StatelessWidget {
   const _UpdateBadge({required this.filename});
 
@@ -457,23 +465,58 @@ class _UpdateBadge extends StatelessWidget {
         final update = service.updateFor(filename);
         if (update == null) return const SizedBox.shrink();
 
-        return Tooltip(
-          message: 'Nexus has ${update.version} '
-              '(${update.uploaded.toIso8601String().split('T').first})',
-          child: Padding(
-            padding: const EdgeInsets.only(left: 8),
-            child: Text(
-              'UPDATE',
-              style: const TextStyle(
-                fontFamily: FontFamily.battlefrontUI,
-                color: kDefaultActiveColor,
-                height: 1,
-                fontSize: 13,
+        final premium =
+            sl.get<NexusModsService>().nexusUser?.isPremium ?? false;
+
+        return Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Tooltip(
+            message: premium
+                ? 'Nexus has ${update.version}, click to download'
+                : 'Nexus has ${update.version}, click to open the mod page',
+            child: GestureDetector(
+              onTap: () => _fetch(update, premium),
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: Text(
+                  'UPDATE',
+                  style: TextStyle(
+                    fontFamily: FontFamily.battlefrontUI,
+                    color: kDefaultActiveColor,
+                    height: 1,
+                    fontSize: 13,
+                  ),
+                ),
               ),
             ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _fetch(ModUpdate update, bool premium) async {
+    if (!premium) {
+      await launchUrlString(update.nexusUrl);
+      return;
+    }
+
+    try {
+      await sl.get<DownloadOrchestrator>().enqueueDownload(
+        DownloadRequest(
+          link: update.downloadUrl,
+          displayName: update.name,
+        ),
+      );
+      NotificationService.showNotification(
+        message: 'Downloading ${update.name}',
+        severity: InfoBarSeverity.info,
+      );
+    } on Object catch (e) {
+      NotificationService.showNotification(
+        message: 'Could not start the download: $e',
+        severity: InfoBarSeverity.error,
+      );
+    }
   }
 }

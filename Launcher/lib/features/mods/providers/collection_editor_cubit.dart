@@ -153,6 +153,32 @@ class CollectionEditorCubit extends Cubit<CollectionEditorState> {
     emit(CollectionEditorState(selectedCollection: collection, editing: true));
   }
 
+  /// Drops every generated saber pack from the collection.
+  ///
+  /// Regenerating writes a differently stamped file each time, so the old
+  /// entry has to go or the collection grows a new one per run. Two reasons
+  /// this cannot use [removeMod]: that one bails out unless the collection is
+  /// in edit mode, and it only ever removes a single entry, which leaves
+  /// earlier ones behind once more than one has piled up.
+  Future<void> removeGeneratedSaberPacks() async {
+    final collection = state.selectedCollection;
+    if (collection == null) return;
+
+    final before = collection.mods.length;
+    collection.mods.removeWhere(
+      (mod) => mod.filename?.contains('.bsm.') ?? false,
+    );
+    if (collection.mods.length == before) return;
+
+    await collectionBox.put(collection.localId, collection);
+    emit(
+      CollectionEditorState(
+        selectedCollection: collection,
+        editing: state.editing,
+      ),
+    );
+  }
+
   void clearCollection() {
     emit(CollectionEditorState());
   }

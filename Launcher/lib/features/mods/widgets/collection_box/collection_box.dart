@@ -282,16 +282,9 @@ class _CollectionBoxState extends State<CollectionBox> {
                                           return;
                                         }
 
-                                        final bsmIndex = collection.mods
-                                            .indexWhere(
-                                              (e) =>
-                                                  e.filename!.contains('.bsm.'),
-                                            );
-                                        if (bsmIndex != -1) {
-                                          await context
-                                              .read<CollectionEditorCubit>()
-                                              .removeMod(bsmIndex);
-                                        }
+                                        await context
+                                            .read<CollectionEditorCubit>()
+                                            .removeGeneratedSaberPacks();
 
                                         NotificationService.showNotification(
                                           message: 'Reloading mods',

@@ -596,10 +596,21 @@ class _Header extends StatelessWidget {
         if (pageIndex == 0) ...[
           const SizedBox(width: 20),
           _ModActionButtons(),
-          if (sl.get<PluginManager>().bsmPlugin != null) ...[
-            const SizedBox(width: 10),
-            _SaberManagerButton(),
-          ],
+          // Watches the plugin manager, which reloads when the Plugins folder
+          // changes, so dropping the plugin in shows the button right away
+          // instead of only after leaving and reopening the page.
+          ListenableBuilder(
+            listenable: sl.get<PluginManager>(),
+            builder: (context, _) {
+              if (sl.get<PluginManager>().bsmPlugin == null) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: _SaberManagerButton(),
+              );
+            },
+          ),
           const SizedBox(width: 10),
           _ModUpdateButton(),
         ],

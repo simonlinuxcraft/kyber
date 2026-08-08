@@ -30,6 +30,8 @@ import 'package:kyber_launcher/features/mods/widgets/mod_info_box.dart';
 import 'package:kyber_launcher/features/mods/widgets/mod_list/mod_list.dart';
 import 'package:kyber_launcher/features/mods/widgets/mod_list/mod_list_header.dart';
 import 'package:kyber_launcher/features/nexusmods/services/nexusmods_service.dart';
+import 'package:kyber_launcher/features/plugin_manager/dialogs/plugin_missing_dialog.dart';
+import 'package:kyber_launcher/shared/ui/dialog/kyber_dialog.dart';
 import 'package:kyber_launcher/features/plugin_manager/plugins/bsm_linux_host.dart';
 import 'package:kyber_launcher/features/plugin_manager/services/plugin_manager.dart';
 import 'package:kyber_launcher/gen/assets.gen.dart';
@@ -596,21 +598,11 @@ class _Header extends StatelessWidget {
         if (pageIndex == 0) ...[
           const SizedBox(width: 20),
           _ModActionButtons(),
-          // Watches the plugin manager, which reloads when the Plugins folder
-          // changes, so dropping the plugin in shows the button right away
-          // instead of only after leaving and reopening the page.
-          ListenableBuilder(
-            listenable: sl.get<PluginManager>(),
-            builder: (context, _) {
-              if (sl.get<PluginManager>().bsmPlugin == null) {
-                return const SizedBox.shrink();
-              }
-              return Padding(
-                padding: const EdgeInsets.only(left: 10),
-                child: _SaberManagerButton(),
-              );
-            },
-          ),
+          // Always present, even without the plugin: clicking it then explains
+          // where the plugin belongs and opens that folder. Hiding it leaves
+          // people with no way to discover the folder at all.
+          const SizedBox(width: 10),
+          _SaberManagerButton(),
           const SizedBox(width: 10),
           _ModUpdateButton(),
         ],
@@ -774,7 +766,13 @@ class _SaberManagerButtonState extends State<_SaberManagerButton> {
 
   Future<void> _open(BuildContext context) async {
     final plugin = sl.get<PluginManager>().bsmPlugin;
-    if (plugin == null) return;
+    if (plugin == null) {
+      await showKyberDialog<void>(
+        context: context,
+        builder: (_) => const PluginMissingDialog(),
+      );
+      return;
+    }
 
     setState(() => _busy = true);
 

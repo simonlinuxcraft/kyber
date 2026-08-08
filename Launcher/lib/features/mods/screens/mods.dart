@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:collection/collection.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' as mt;
@@ -6,6 +8,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:kyber_collection/kyber_collection.dart';
 import 'package:kyber_launcher/core/config/colors.dart';
 import 'package:kyber_launcher/core/routing/app_router.dart';
+import 'package:kyber_launcher/core/services/notification_service.dart';
+import 'package:kyber_launcher/features/maxima/models/maxima_game_instance.dart';
 import 'package:kyber_launcher/features/maxima/providers/maxima_cubit.dart';
 import 'package:kyber_launcher/features/mod_browser/providers/mod_browser_cubit.dart';
 import 'package:kyber_launcher/features/mod_browser/providers/mod_search_cubit.dart';
@@ -23,6 +27,7 @@ import 'package:kyber_launcher/features/mods/widgets/mod_info_box.dart';
 import 'package:kyber_launcher/features/mods/widgets/mod_list/mod_list.dart';
 import 'package:kyber_launcher/features/mods/widgets/mod_list/mod_list_header.dart';
 import 'package:kyber_launcher/features/nexusmods/services/nexusmods_service.dart';
+import 'package:kyber_launcher/features/plugin_manager/services/plugin_manager.dart';
 import 'package:kyber_launcher/gen/assets.gen.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/injection_container.dart';
@@ -30,6 +35,7 @@ import 'package:kyber_launcher/main.dart';
 import 'package:kyber_launcher/shared/ui/elements/filter_dropdown.dart';
 import 'package:kyber_launcher/shared/ui/layout/bordered_content.dart';
 import 'package:kyber_launcher/shared/ui/ui.dart';
+import 'package:path/path.dart' as p;
 import 'package:super_sliver_list/super_sliver_list.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
@@ -497,6 +503,10 @@ class _Header extends StatelessWidget {
         if (pageIndex == 0) ...[
           const SizedBox(width: 20),
           _ModActionButtons(),
+          if (sl.get<PluginManager>().bsmPlugin != null) ...[
+            const SizedBox(width: 10),
+            _SaberManagerButton(),
+          ],
         ],
         const SizedBox(width: 20),
         Expanded(
@@ -545,6 +555,102 @@ class _TabSelector extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Opens the Better Sabers manager for the whole mod list, without going
+/// through a collection first. Only shown when the plugin is installed.
+class _SaberManagerButton extends StatefulWidget {
+  @override
+  State<_SaberManagerButton> createState() => _SaberManagerButtonState();
+}
+
+class _SaberManagerButtonState extends State<_SaberManagerButton> {
+  /// The manager takes a while to come up through Wine. Without this the
+  /// button looks dead and gets clicked again, which starts a second window.
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 45,
+      child: KyberTabBar(
+        selectedIndex: -1,
+        onChanged: _busy ? null : (_) => _open(context),
+        tabs: [
+          if (_busy)
+            const SizedBox(
+              width: 15,
+              height: 15,
+              child: ProgressRing(strokeWidth: 2),
+            )
+          else
+            Assets.icons.laserSword.svg(
+              colorFilter: const ColorFilter.mode(
+                Colors.white,
+                BlendMode.srcIn,
+              ),
+              width: 15,
+              height: 15,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _open(BuildContext context) async {
+    final plugin = sl.get<PluginManager>().bsmPlugin;
+    if (plugin == null) return;
+
+    // On Linux the manager runs inside the same Wine prefix as the game, so
+    // opening it mid-session makes two processes fight over one wineserver.
+    if (Platform.isLinux && sl.isRegistered<MaximaGameInstance>()) {
+      NotificationService.showNotification(
+        message: 'Close the game before opening Better Sabers',
+        severity: InfoBarSeverity.warning,
+      );
+      return;
+    }
+
+    setState(() => _busy = true);
+
+    final mods = context
+        .read<ModsListCubit>()
+        .state
+        .mods
+        .map((mod) => mod.filename)
+        .toList();
+
+    NotificationService.showNotification(
+      message: 'Opening Better Sabers',
+      severity: InfoBarSeverity.info,
+    );
+
+    try {
+      final result = await plugin.generateFile(
+        ModService.getBasePath(),
+        mods,
+        'BetterSabers',
+      );
+      if (result.isEmpty) return;
+
+      await File(result).copy(
+        p.join(ModService.getBasePath(), p.basename(result)),
+      );
+      await sl.get<ModService>().refresh();
+
+      NotificationService.showNotification(
+        message: 'Generated BetterSabers',
+        severity: InfoBarSeverity.success,
+      );
+    } on Object catch (e) {
+      NotificationService.showNotification(
+        message: '$e',
+        severity: InfoBarSeverity.error,
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 }
 

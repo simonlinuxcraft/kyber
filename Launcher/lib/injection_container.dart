@@ -13,6 +13,7 @@ import 'package:kyber_launcher/features/map_rotation/services/custom_rotation_se
 import 'package:kyber_launcher/features/maxima/services/maxima_instance_service.dart';
 import 'package:kyber_launcher/features/mods/services/level_declaration_service.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
+import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
 import 'package:kyber_launcher/features/nexusmods/services/nexusmods_service.dart';
 import 'package:kyber_launcher/features/plugin_manager/services/plugin_manager.dart';
 
@@ -33,6 +34,7 @@ void initializeDependencies() {
     ..registerSingleton<VoipService>(VoipService().getInstance())
     ..registerSingleton<PluginManager>(PluginManager())
     ..registerSingleton<LevelDeclarationService>(LevelDeclarationService())
+    ..registerSingleton<ModUpdateService>(ModUpdateService())
     ..registerSingletonAsync<ModService>(ModService.getInstance)
     ..registerSingletonAsync<DownloadOrchestrator>(
       DownloadOrchestrator.getInstance,

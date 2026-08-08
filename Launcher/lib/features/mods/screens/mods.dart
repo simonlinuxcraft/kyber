@@ -20,6 +20,7 @@ import 'package:kyber_launcher/features/mods/models/mods_filter.dart';
 import 'package:kyber_launcher/features/mods/providers/collection_editor_cubit.dart';
 import 'package:kyber_launcher/features/mods/providers/mod_list_cubit.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
+import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
 import 'package:kyber_launcher/features/mods/widgets/browser_category_box.dart';
 import 'package:kyber_launcher/features/mods/widgets/collection_box/collection_box.dart';
 import 'package:kyber_launcher/features/mods/widgets/collection_list/collection_entry.dart';
@@ -507,6 +508,8 @@ class _Header extends StatelessWidget {
             const SizedBox(width: 10),
             _SaberManagerButton(),
           ],
+          const SizedBox(width: 10),
+          _ModUpdateButton(),
         ],
         const SizedBox(width: 20),
         Expanded(
@@ -554,6 +557,64 @@ class _TabSelector extends StatelessWidget {
           Text('Browser'.toUpperCase()),
         ],
       ),
+    );
+  }
+}
+
+/// Asks Nexus which installed mods have a newer file. One request per mod,
+/// so this stays on a button instead of running by itself.
+class _ModUpdateButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final service = sl.get<ModUpdateService>();
+
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        return SizedBox(
+          width: 45,
+          child: KyberTabBar(
+            selectedIndex: -1,
+            onChanged: service.isChecking ? null : (_) => _check(context),
+            tabs: [
+              if (service.isChecking)
+                const SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: ProgressRing(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  mt.Icons.sync,
+                  color: service.count > 0
+                      ? kDefaultActiveColor
+                      : Colors.white,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _check(BuildContext context) async {
+    final service = sl.get<ModUpdateService>();
+    final mods = context.read<ModsListCubit>().state.mods;
+
+    NotificationService.showNotification(
+      message: 'Checking Nexus for mod updates',
+      severity: InfoBarSeverity.info,
+    );
+
+    await service.check(mods);
+
+    NotificationService.showNotification(
+      message: service.count == 0
+          ? 'All mods are up to date'
+          : '${service.count} mods have a newer version on Nexus',
+      severity: service.count == 0
+          ? InfoBarSeverity.success
+          : InfoBarSeverity.warning,
     );
   }
 }

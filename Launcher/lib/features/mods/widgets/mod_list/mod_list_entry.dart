@@ -13,6 +13,8 @@ import 'package:kyber_launcher/features/mods/services/mod_service.dart';
 import 'package:kyber_launcher/features/server_browser/widgets/server_list/server_list_header.dart';
 import 'package:kyber_launcher/features/settings/dialogs/chromium_download_dialog.dart';
 import 'package:kyber_launcher/gen/assets.gen.dart';
+import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
+import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/shared/ui/buttons/custom_icon_button.dart';
 import 'package:kyber_launcher/shared/ui/dialog/kyber_dialog.dart';
@@ -189,14 +191,19 @@ class ModListEntry extends StatelessWidget {
                                 ),
                                 maxLines: 1,
                               ),
-                              Text(
-                                mod.details.version,
-                                style: const TextStyle(
-                                  fontFamily: FontFamily.battlefrontUI,
-                                  color: kWhiteColor,
-                                  height: 1,
-                                  fontSize: 13,
-                                ),
+                              Row(
+                                children: [
+                                  Text(
+                                    mod.details.version,
+                                    style: const TextStyle(
+                                      fontFamily: FontFamily.battlefrontUI,
+                                      color: kWhiteColor,
+                                      height: 1,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  _UpdateBadge(filename: mod.filename),
+                                ],
                               ),
                             ],
                           ),
@@ -429,6 +436,44 @@ class Selector extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Marks a mod whose Nexus page carries a newer file than the one installed.
+/// Stays invisible until [ModUpdateService.check] has actually run.
+class _UpdateBadge extends StatelessWidget {
+  const _UpdateBadge({required this.filename});
+
+  final String filename;
+
+  @override
+  Widget build(BuildContext context) {
+    final service = sl.get<ModUpdateService>();
+
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        final update = service.updateFor(filename);
+        if (update == null) return const SizedBox.shrink();
+
+        return Tooltip(
+          message: 'Nexus has ${update.version} '
+              '(${update.uploaded.toIso8601String().split('T').first})',
+          child: Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: Text(
+              'UPDATE',
+              style: const TextStyle(
+                fontFamily: FontFamily.battlefrontUI,
+                color: kDefaultActiveColor,
+                height: 1,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

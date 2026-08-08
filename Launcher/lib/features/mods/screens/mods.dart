@@ -680,7 +680,16 @@ class _ModActionButtons extends StatelessWidget {
     final selectedMods = cubit.state.selectedMods;
     final selectedFrostyMods = _getSelectedFrostyMods(mods, selectedMods);
 
-    if (value == 1 && selectedFrostyMods.isNotEmpty) {
+    if (value == 1) {
+      // Selecting a mod means clicking its icon, which is easy to miss. The
+      // button used to do nothing at all without a selection.
+      if (selectedFrostyMods.isEmpty) {
+        NotificationService.showNotification(
+          message: 'Select mods to delete by clicking their icon',
+          severity: InfoBarSeverity.warning,
+        );
+        return;
+      }
       await _handleDeleteMods(context, cubit, selectedFrostyMods);
     } else if (value == 0) {
       _handleCreateCollection(context, cubit, mods, selectedMods);

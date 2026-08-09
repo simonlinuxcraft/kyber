@@ -703,17 +703,23 @@ class _ModUpdateButton extends StatelessWidget {
 
     await service.check(mods);
 
+    // A mod that cannot be reached says nothing about the rest: every mod is
+    // asked on its own, so the others were checked and their result stands.
+    // Reporting only the failure read as "the check did not happen".
+    final failed = service.failedCount;
+    final skipped = failed > 0
+        ? ', ${_modCount(failed)} could not be checked'
+        : '';
+
     final String message;
     final InfoBarSeverity severity;
-    if (service.failedCount > 0 && service.count == 0) {
-      message = 'Could not reach Nexus for ${service.failedCount} mods';
-      severity = InfoBarSeverity.error;
-    } else if (service.count == 0) {
-      message = 'All mods are up to date';
-      severity = InfoBarSeverity.success;
+    if (service.count == 0) {
+      message = 'No mod updates found$skipped';
+      severity = failed > 0 ? InfoBarSeverity.warning : InfoBarSeverity.success;
     } else {
-      message = '${service.count} mods have a newer version on Nexus'
-          '${service.failedCount > 0 ? ', ${service.failedCount} could not be checked' : ''}';
+      message =
+          '${_modCount(service.count)} '
+          'with a newer version on Nexus$skipped';
       severity = InfoBarSeverity.warning;
     }
 
@@ -723,6 +729,8 @@ class _ModUpdateButton extends StatelessWidget {
     );
   }
 }
+
+String _modCount(int n) => n == 1 ? '1 mod' : '$n mods';
 
 /// Opens the Better Sabers manager for the whole mod list, without going
 /// through a collection first. Only shown when the plugin is installed.

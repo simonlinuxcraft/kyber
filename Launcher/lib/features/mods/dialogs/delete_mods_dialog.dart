@@ -16,6 +16,19 @@ import 'package:kyber_launcher/shared/ui/dialog/kyber_dialog.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart';
 
+/// Removes the folder a deleted mod sat in, once nothing is left in it.
+///
+/// A Nexus download unpacks into its own folder, so deleting the mod used to
+/// leave that folder behind for every mod that was not a collection. Guarding
+/// with `isWithin` rather than comparing against the base path keeps this off
+/// the mods folder itself: `join(base, dirname('mod.fbmod'))` is `base/.`,
+/// which no string compare against `base` ever caught.
+void pruneEmptyModFolder(String basePath, String filename) {
+  final folder = Directory(join(basePath, dirname(filename)));
+  if (!isWithin(basePath, folder.path)) return;
+  if (folder.listSync().isEmpty) folder.deleteSync();
+}
+
 class DeleteModsDialog extends StatefulWidget {
   const DeleteModsDialog({required this.mods, super.key});
 
@@ -94,17 +107,10 @@ class _DeleteModsDialogState extends State<DeleteModsDialog> {
                       Logger.root.severe('Failed to delete mod: $path', e, s);
                     }
                   }
-
-                  File(join(basePath, mod.filename)).deleteSync();
-
-                  final dir = Directory(join(basePath, dirname(mod.filename)));
-                  if (dir.listSync().isEmpty &&
-                      dir.path != ModService.getBasePath()) {
-                    dir.deleteSync();
-                  }
-                } else {
-                  File(join(basePath, mod.filename)).deleteSync();
                 }
+
+                File(join(basePath, mod.filename)).deleteSync();
+                pruneEmptyModFolder(basePath, mod.filename);
               } catch (e, s) {
                 NotificationService.showNotification(
                   message: 'Failed to delete mod: ${mod.filename}',

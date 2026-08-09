@@ -24,6 +24,11 @@ class HostLoopbackWarning {
 
     final badIp = await _badLoopback();
     if (badIp == null) return true;
+
+    // The game is launched with a hostname of its own, which makes the wrong
+    // loopback address irrelevant. Only kernels that forbid unprivileged user
+    // namespaces still need the manual fix, so only they get warned.
+    if (await _canIsolateHostname()) return true;
     if (!context.mounted) return true;
 
     final result = await showKyberDialog<bool>(
@@ -31,6 +36,18 @@ class HostLoopbackWarning {
       builder: (_) => _HostLoopbackWarningDialog(badIp: badIp),
     );
     return result == true;
+  }
+
+  /// Whether the game can be given its own hostname, which is what removes the
+  /// need for the manual fix. Mirrors what the launch path itself attempts;
+  /// anything unexpected counts as "cannot", so the user still gets told.
+  static Future<bool> _canIsolateHostname() async {
+    try {
+      final probe = await Process.run('unshare', ['--user', '--uts', 'true']);
+      return probe.exitCode == 0;
+    } on Object catch (_) {
+      return false;
+    }
   }
 
   /// The loopback address the hostname resolves to when it is not 127.0.0.1
@@ -81,6 +98,12 @@ class _HostLoopbackWarningDialog extends StatelessWidget {
               'server connects to itself, and with this address the connection '
               'never establishes, so the game crashes shortly after the map '
               'starts loading. Joining other servers is not affected.',
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'This is normally handled by giving the game a hostname of its '
+              'own, but that needs user namespaces, which this system does not '
+              'allow. So it has to be fixed by hand once.',
             ),
             const SizedBox(height: 20),
             const Text('Run this once in a terminal, then host again:'),

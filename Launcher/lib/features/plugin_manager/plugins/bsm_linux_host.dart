@@ -376,6 +376,11 @@ class BsmLinuxHost {
         'LD_PRELOAD': '',
         'LANG': 'en_US.UTF-8',
         'LC_ALL': 'en_US.UTF-8',
+        // Same reason Maxima sets this on every umu call it makes: without it
+        // umu revalidates its Steam Linux Runtime each time, which is what
+        // stalls on slow links. User-overridable, as it is there.
+        'UMU_RUNTIME_UPDATE':
+            Platform.environment['UMU_RUNTIME_UPDATE'] ?? '0',
       },
     );
     final result = timeout == null

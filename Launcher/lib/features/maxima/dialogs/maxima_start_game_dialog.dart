@@ -294,6 +294,18 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                   );
                 },
               );
+
+              // KYBER-LINUX-PORT-MOD: this branch already closed the launch
+              // dialog, so falling through to the pop below would immediately
+              // pop the error dialog we just pushed - the user saw the launch
+              // fail with no message at all.
+              Sentry.captureException(error, stackTrace: stackTrace);
+              Logger.root.severe(
+                'Failed to start game: $error',
+                error,
+                stackTrace,
+              );
+              return;
             } else {
               NotificationService.showNotification(
                 message: 'Failed to start game: $error',
@@ -357,7 +369,7 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
           ),
           Text(
             protonTotalBytes != null
-                ? 'First launch downloads the Proton runtime once (~${(protonTotalBytes! / 1048576).round()} MB). This can take a few minutes on a slow connection; the download resumes if interrupted.'
+                ? 'Downloading the Proton runtime (~${(protonTotalBytes! / 1048576).round()} MB). This can take a few minutes on a slow connection; the download resumes if interrupted.'
                 : 'Please wait while the game is starting. This may take a few seconds.',
             style: FluentTheme.of(context).typography.body?.copyWith(
               color: kWhiteColor,

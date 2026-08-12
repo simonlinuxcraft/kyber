@@ -814,6 +814,17 @@ pub struct ProtonCandidate {
     pub in_home: bool,
 }
 
+// KYBER-LINUX-PORT-MOD 2026-08-12: what the next launch will actually run.
+// `tag` is read from the build itself, never from its directory name, so a
+// directory named after another release cannot misreport it. `origin` is
+// "custom" (user setting), "detected" (pinned build found on the system),
+// "managed" (downloaded by us) or "download" (nothing on disk yet).
+pub struct ActiveProton {
+    pub path: String,
+    pub tag: String,
+    pub origin: String,
+}
+
 /// Result of a BF2 VKD3D shader cache clear attempt. `reason` is a stable
 /// machine-readable tag the UI maps to a localised InfoBar message.
 pub struct ShaderCacheClearResult {
@@ -1012,6 +1023,24 @@ pub fn get_custom_proton_path() -> Option<String> {
 #[cfg(not(target_os = "linux"))]
 pub fn get_custom_proton_path() -> Option<String> {
     None
+}
+
+/// The Proton build the next launch will use, for display in settings.
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(target_os = "linux")]
+pub fn get_active_proton() -> ActiveProton {
+    let (path, tag, origin) = maxima::unix::wine::active_proton_info();
+    ActiveProton { path, tag, origin }
+}
+
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(not(target_os = "linux"))]
+pub fn get_active_proton() -> ActiveProton {
+    ActiveProton {
+        path: String::new(),
+        tag: String::new(),
+        origin: "unsupported".to_string(),
+    }
 }
 
 /// Live-validate a proton directory for the settings dialog UI. Cheap,

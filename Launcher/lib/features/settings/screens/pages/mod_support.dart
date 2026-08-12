@@ -13,8 +13,29 @@ import 'package:kyber_launcher/main.dart';
 import 'package:kyber_launcher/shared/ui/ui.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
-class ModSupport extends StatelessWidget {
+class ModSupport extends StatefulWidget {
   const ModSupport({super.key});
+
+  @override
+  State<ModSupport> createState() => _ModSupportState();
+}
+
+class _ModSupportState extends State<ModSupport> {
+  // KYBER-LINUX-PORT-MOD: what the next launch will actually run. The release
+  // tag is read from the build, not from its directory name, because those can
+  // disagree: a compatibilitytools.d entry named GE-Proton10-34 turned out to be
+  // a symlink into Lutris' rolling "Proton-GE Latest" and held 11-3.
+  String _protonLabel() {
+    final active = getActiveProton();
+    final origin = switch (active.origin) {
+      'custom' => 'custom path',
+      'detected' => 'found on this system',
+      'managed' => 'managed by Kyber',
+      'download' => 'downloads on next launch',
+      _ => active.origin,
+    };
+    return '${active.tag} ($origin)';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,12 +73,20 @@ class ModSupport extends StatelessWidget {
               ),
               if (Platform.isLinux)
                 KyberTableItem.button(
-                  title: 'Custom Proton Path (Experimental)',
-                  text: getCustomProtonPath() == null ? 'Set Path' : 'Change',
-                  onClick: () => showKyberDialog(
-                    builder: (_) => const CustomProtonPathDialog(),
-                    context: context,
-                  ),
+                  title: 'Proton Build',
+                  text: _protonLabel(),
+                  onClick: () async {
+                    await showKyberDialog(
+                      builder: (_) => const CustomProtonPathDialog(),
+                      context: context,
+                    );
+                    // Reread after the dialog: changing the path here does not
+                    // touch Hive, so the surrounding HiveListener would keep
+                    // showing the build that was active before the change.
+                    if (mounted) {
+                      setState(() {});
+                    }
+                  },
                 ),
               // Only on an actual Wayland session. On X11 GDK_BACKEND=wayland
               // has no display to open and would stop the launcher starting,

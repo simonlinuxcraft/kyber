@@ -28,6 +28,7 @@ class ModSupport extends StatelessWidget {
             'incrementalDownloadsEnabled',
             'customGamePath',
             'nativeWayland',
+            'skiaRenderer',
           ],
           builder: (_) => KyberTable(
             items: [
@@ -75,6 +76,39 @@ class ModSupport extends StatelessWidget {
                         title: const Text('Restart required'),
                         content: const Text(
                           'Native Wayland takes effect after you restart Kyber.',
+                        ),
+                        severity: InfoBarSeverity.info,
+                        action: IconButton(
+                          icon: const Icon(FluentIcons.clear),
+                          onPressed: close,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              // Impeller is the engine default since Flutter made it so in
+              // June 2026. It is faster on dedicated GPUs and slower on weak
+              // integrated or software-rendered ones, so there is no default
+              // that suits every machine and the user decides by feel.
+              if (Platform.isLinux)
+                KyberTableItem.switchButton(
+                  title: 'Alternative renderer for weak graphics '
+                      '(restart to apply)',
+                  value: Preferences.general.skiaRenderer,
+                  onChange: (bool value) {
+                    Preferences.general.skiaRenderer = value;
+                    writeRendererPref(value);
+                    displayInfoBar(
+                      context,
+                      builder: (_, close) => InfoBar(
+                        title: const Text('Restart required'),
+                        content: const Text(
+                          'Turn this on if the interface stutters. It draws '
+                          'the launcher a different way that is usually '
+                          'smoother on integrated graphics, in virtual '
+                          'machines and on older cards, and usually slower on '
+                          'a dedicated graphics card. If nothing improves, '
+                          'turn it back off. Restart Kyber to apply.',
                         ),
                         severity: InfoBarSeverity.info,
                         action: IconButton(

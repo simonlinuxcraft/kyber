@@ -7,6 +7,12 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
+// Compile default for the renderer. Stays on the engine default (Impeller since
+// fa137457bad, June 2026): it is faster than Skia on a dedicated GPU and slower
+// on a weak iGPU, so there is no default that suits everyone. Affected users
+// switch with KYBER_RENDERER=skia.
+#define KYBER_DEFAULT_SKIA FALSE
+
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
@@ -53,6 +59,27 @@ static gchar* locate_bundled_icon() {
   g_free(up_one);
   g_free(up_two);
   return found;
+}
+
+// Whether to force the Skia renderer instead of the engine default. Impeller's
+// GLES backend is heavier on weak iGPUs, so this stays switchable at runtime.
+// Precedence: KYBER_RENDERER env, then ~/.config/kyber-linuxport/renderer,
+// then the compile default. Recognised value is "skia"; anything else means
+// Impeller.
+static gboolean use_skia_renderer() {
+  const gchar* env = g_getenv("KYBER_RENDERER");
+  if (env != NULL && *env != '\0') {
+    return g_ascii_strcasecmp(env, "skia") == 0;
+  }
+
+  g_autofree gchar* pref = g_build_filename(
+      g_get_user_config_dir(), "kyber-linuxport", "renderer", NULL);
+  g_autofree gchar* contents = NULL;
+  if (g_file_get_contents(pref, &contents, NULL, NULL)) {
+    return g_ascii_strcasecmp(g_strstrip(contents), "skia") == 0;
+  }
+
+  return KYBER_DEFAULT_SKIA;
 }
 
 // Implements GApplication::activate.
@@ -117,6 +144,11 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(window));
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
+  gboolean skia = use_skia_renderer();
+  if (skia) {
+    fl_dart_project_set_enable_impeller(project, FALSE);
+  }
+  g_message("Renderer: %s", skia ? "skia" : "impeller");
   fl_dart_project_set_dart_entrypoint_arguments(project, self->dart_entrypoint_arguments);
 
   FlView* view = fl_view_new(project);

@@ -19,11 +19,11 @@ int sanitizePushToTalkKey(int value) {
   return value;
 }
 
-/// Mirror the "Native Wayland" toggle to a plain file that AppRun reads before
-/// GTK initialises (the launcher's Hive store is unreadable from the AppRun
-/// shell). `true` writes "wayland", `false` removes the file so x11 stays the
-/// default. Best-effort; the Hive pref drives the UI regardless.
-void writeWaylandBackendPref(bool wayland) {
+/// Write a plain file under ~/.config/kyber-linuxport. Both readers run before
+/// the Dart VM exists (AppRun's shell, the GTK runner), and neither can read
+/// the launcher's Hive store, hence the plain-file contract. `null` removes the
+/// file. Best-effort; the Hive pref drives the UI regardless.
+void _writeLinuxPref(String name, String? content) {
   if (!Platform.isLinux) return;
   final cfg = Platform.environment['XDG_CONFIG_HOME'];
   final home = Platform.environment['HOME'];
@@ -32,11 +32,11 @@ void writeWaylandBackendPref(bool wayland) {
       : (home != null && home.isNotEmpty ? '$home/.config' : null);
   if (base == null) return;
   final dir = Directory('$base/kyber-linuxport');
-  final file = File('${dir.path}/backend');
+  final file = File('${dir.path}/$name');
   try {
-    if (wayland) {
+    if (content != null) {
       dir.createSync(recursive: true);
-      file.writeAsStringSync('wayland\n');
+      file.writeAsStringSync(content);
     } else if (file.existsSync()) {
       file.deleteSync();
     }
@@ -44,6 +44,17 @@ void writeWaylandBackendPref(bool wayland) {
     // best-effort; choice is still recorded in Hive
   }
 }
+
+/// Mirror the "Native Wayland" toggle for AppRun, which applies GDK_BACKEND
+/// before GTK initialises. Removing the file leaves x11 as the default.
+void writeWaylandBackendPref(bool wayland) =>
+    _writeLinuxPref('backend', wayland ? 'wayland\n' : null);
+
+/// Mirror the renderer choice for my_application.cc, which selects the engine
+/// renderer before the view is created. Removing the file leaves the engine
+/// default (Impeller). A KYBER_RENDERER env var still overrides both.
+void writeRendererPref(bool skia) =>
+    _writeLinuxPref('renderer', skia ? 'skia\n' : null);
 
 class Preferences {
   static final general = General();
@@ -80,6 +91,14 @@ class General {
       box.get('nativeWayland', defaultValue: false) as bool;
 
   set nativeWayland(bool value) => box.put('nativeWayland', value);
+
+  // Linux only. Mirrored to a plain file via writeRendererPref so the GTK
+  // runner can pick the renderer before the engine starts. Impeller is the
+  // engine default and wins on dedicated GPUs; Skia wins on integrated or
+  // software-rendered ones. Applied on next launch (restart).
+  bool get skiaRenderer => box.get('skiaRenderer', defaultValue: false) as bool;
+
+  set skiaRenderer(bool value) => box.put('skiaRenderer', value);
 
   String? get currentVersion => box.get('currentVersion') as String?;
 

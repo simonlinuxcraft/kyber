@@ -185,6 +185,12 @@ Star Wars and Battlefront are trademarks of Lucasfilm Ltd.; this project is not 
       launcherVersion = '${info.version}-#${info.buildNumber}';
       Logger('bootstrap').info('Starting Launcher v$launcherVersion');
 
+      // Separate from KYBER_RENDERER on purpose: switching the renderer must be
+      // possible without the measurement running along and skewing it.
+      if (Platform.environment['KYBER_FRAME_LOG']?.isNotEmpty ?? false) {
+        _logFrameTimings();
+      }
+
       Logger('bootstrap').info('Loading Certificates');
       await loadCerts();
       await initSentry(info.version);
@@ -222,6 +228,41 @@ Star Wars and Battlefront are trademarks of Lucasfilm Ltd.; this project is not 
       await Sentry.captureException(exception, stackTrace: stackTrace);
     },
   );
+}
+
+// Frame timings for the renderer A/B test. Raster is the interesting half: a
+// fillrate-limited UI shows a normal build time and a blown-up raster time.
+void _logFrameTimings() {
+  final build = <int>[];
+  final raster = <int>[];
+
+  WidgetsBinding.instance.addTimingsCallback((timings) {
+    for (final t in timings) {
+      build.add(t.buildDuration.inMicroseconds);
+      raster.add(t.rasterDuration.inMicroseconds);
+    }
+  });
+
+  String pct(List<int> values, double q) {
+    final index = ((values.length - 1) * q).round();
+    return (values[index] / 1000).toStringAsFixed(1);
+  }
+
+  Timer.periodic(const Duration(seconds: 5), (_) {
+    if (build.isEmpty) return;
+    build.sort();
+    raster.sort();
+    final line =
+        '${build.length} frames, '
+        'build p50 ${pct(build, .5)}ms p95 ${pct(build, .95)}ms, '
+        'raster p50 ${pct(raster, .5)}ms p95 ${pct(raster, .95)}ms';
+    Logger('frames').info(line);
+    // Also on stdout: the release logger only writes to the log file, and the
+    // point of this is to read numbers straight off a terminal.
+    stdout.writeln('[frames] $line');
+    build.clear();
+    raster.clear();
+  });
 }
 
 class App extends StatefulWidget {

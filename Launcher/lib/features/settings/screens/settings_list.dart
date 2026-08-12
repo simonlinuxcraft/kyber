@@ -46,7 +46,7 @@ class _SettingsListState extends State<SettingsList> {
     },
     {
       'title': 'MODS / PROTON / WAYLAND',
-      'description': 'MODS, FROSTY IMPORT, PROTON & WAYLAND BACKEND',
+      'description': 'MODS, FROSTY IMPORT, PROTON, WAYLAND & RENDERER',
       'child': const ModSupport(),
     },
     {

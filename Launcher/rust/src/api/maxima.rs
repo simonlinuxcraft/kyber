@@ -527,42 +527,21 @@ pub async fn start_game(
         cloud_saves: false,
     }).await?;
 
-    // MAXIMA-LINUX-PORT-MOD 2026-08-13: hard deadline for the handshake wait.
-    // maxima's own "is the launch over" decision (playing() below) is tuned for
-    // a different question, whether a *running* game is still alive, where the
-    // Linux process scan is blind and the grace window has to be generous. That
-    // window is 300s, which as a wait for the handshake is far too long: a
-    // player stares at "GAME LAUNCHING" for five minutes before being told
-    // anything. The handshake is a much narrower thing. Measured launches on a
-    // working setup reach it in 11 to 19 seconds, so 120s is six to ten times
-    // the real figure and still covers a cold start on slow storage with shader
-    // compilation. Not lower than that: cutting a slow but healthy launch short
-    // is worse than making someone wait, because it reports a failure that did
-    // not happen. Whichever of the two conditions fires first wins.
-    const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+    // MAXIMA-LINUX-PORT-MOD 2026-08-13: last-resort backstop for the handshake
+    // wait. The real decision is playing() below, which rides maxima's own grace
+    // window (launch.rs launch_grace_remaining, 300s after the bootstrap helper
+    // exits). That window is deliberately generous and must stay the deciding
+    // factor: its comment records that 120s once refocused the launcher over a
+    // still-loading game on a slow Steam Deck, so anything tighter here would
+    // reintroduce exactly that bug. This constant only exists for the case where
+    // playing() never flips, and is set far above the grace window so it can
+    // never be the one that ends a launch that maxima still considers alive.
+    //
+    // Do not "tune" this down to the launch times measured on a fast desktop
+    // (11 to 19 seconds warm). Those say nothing about a cold prefix on SD-card
+    // storage, which is the hardware this has to survive.
+    const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
     let wait_started = std::time::Instant::now();
-
-    // MAXIMA-LINUX-PORT-MOD 2026-08-13: the timeout above is the backstop. In
-    // the common failure case we can know much sooner: if no wineserver is
-    // attached to our prefix any more, nothing is left that could ever produce
-    // the handshake, so waiting out the full two minutes only makes the user
-    // sit in front of a frozen-looking dialog. Two guards keep this from
-    // firing on a healthy launch:
-    //   - a start-up window, because Proton needs a moment to bring the
-    //     wineserver up (umu may still be staging its runtime on slow storage),
-    //   - and once a wineserver has been seen, its disappearance is what counts,
-    //     which is unambiguous.
-    // The /proc walk is rate limited. It must never run on the 25ms tick: that
-    // exact pattern (scanning all of /proc at 40 Hz) is what previously drove a
-    // Bazzite host into a kernel panic.
-    #[cfg(target_os = "linux")]
-    const WINE_STARTUP_WINDOW: std::time::Duration = std::time::Duration::from_secs(45);
-    #[cfg(target_os = "linux")]
-    const WINE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
-    #[cfg(target_os = "linux")]
-    let mut wineserver_seen = false;
-    #[cfg(target_os = "linux")]
-    let mut last_wine_check = std::time::Instant::now();
 
     loop {
         let mut maxima = maxima_arc.lock().await;
@@ -595,25 +574,15 @@ pub async fn start_game(
         // logs the Proton and Wine output on the way, so reuse that decision
         // instead of adding a second, competing timeout. Same pattern as
         // lsx_get_event_stream above.
-        // Rate-limited liveness probe, see the constants above.
-        #[cfg(target_os = "linux")]
-        let wine_gone = if last_wine_check.elapsed() >= WINE_CHECK_INTERVAL {
-            last_wine_check = std::time::Instant::now();
-            if is_maxima_wineserver_alive() {
-                wineserver_seen = true;
-                false
-            } else {
-                // Either it came up and died, or it never came up at all and
-                // the start-up window has passed.
-                wineserver_seen || wait_started.elapsed() >= WINE_STARTUP_WINDOW
-            }
-        } else {
-            false
-        };
-        #[cfg(not(target_os = "linux"))]
-        let wine_gone = false;
-
-        if maxima.playing().is_none() || wait_started.elapsed() >= HANDSHAKE_TIMEOUT || wine_gone {
+        // MAXIMA-LINUX-PORT-MOD 2026-08-13: a wineserver liveness probe used to
+        // sit here to end a dead launch sooner than the grace window does. It
+        // was removed: Proton runs the game through the waitforexitandrun verb,
+        // which waits for the previous wineserver to shut down before starting
+        // the game, so a window with no wineserver attached to the prefix is
+        // part of a perfectly healthy launch. A probe landing in that window
+        // aborts a launch that was about to succeed. Do not reintroduce it
+        // without a signal that cannot occur during a normal start.
+        if maxima.playing().is_none() || wait_started.elapsed() >= HANDSHAKE_TIMEOUT {
             // Drain once more before giving up: a ChallengeResponse queued
             // between the consume above and this point is a valid launch and
             // has to win over the bail.

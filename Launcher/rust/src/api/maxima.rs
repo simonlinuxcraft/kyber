@@ -1562,4 +1562,76 @@ pub fn clear_bf2_shader_cache(
     Err("shader cache clear is linux-only".to_string())
 }
 
+/// Result of a Wine prefix reset attempt. `reason` is one of "moved",
+/// "wineserver_busy", "not_present".
+pub struct PrefixResetResult {
+    pub reason: String,
+    pub backup_path: Option<String>,
+}
+
+// DISABLED 2026-08-13. Kept for reference, no UI path reaches it: the dialog
+// button was removed after the first user test. Two problems, both real:
+//
+// 1. `~/.local/share/maxima/wine/prefix` is usually a SYMLINK into
+//    <SteamLibrary>/steamapps/compatdata/1237950/pfx. canonicalize() resolves
+//    it, so the code below renames the TARGET and leaves the symlink dangling.
+// 2. The bigger one: on Linux a prefix reset also destroys game detection.
+//    Maxima's OwnedOffer::is_installed() resolves install_check_override
+//    through the Wine registry INSIDE the prefix, and the
+//    `EA Games\STAR WARS Battlefront II\Install Dir` key is written by
+//    linux_setup.rs by patching system.reg, which needs an existing prefix.
+//    A fresh prefix therefore means "GAME NOT FOUND" until Steam-Proton has
+//    rebuilt it once.
+//
+// Anyone reviving this has to carry system.reg/user.reg/userdef.reg over, or
+// rerun the setup right after the move. Do not wire it back to a button
+// without a reproducible case of a genuinely dead prefix to test against.
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(target_os = "linux")]
+pub fn reset_wine_prefix() -> Result<PrefixResetResult, String> {
+    if is_maxima_wineserver_alive() {
+        return Ok(PrefixResetResult {
+            reason: "wineserver_busy".to_string(),
+            backup_path: None,
+        });
+    }
+
+    let prefix = maxima::unix::wine::default_wine_prefix_dir().map_err(|e| e.to_string())?;
+    let real = std::fs::canonicalize(&prefix).unwrap_or(prefix);
+    if !real.is_dir() {
+        return Ok(PrefixResetResult {
+            reason: "not_present".to_string(),
+            backup_path: None,
+        });
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let backup = real.with_file_name(format!(
+        "{}.kyber-backup-{}",
+        real.file_name().and_then(|n| n.to_str()).unwrap_or("pfx"),
+        stamp
+    ));
+
+    std::fs::rename(&real, &backup)
+        .map_err(|e| format!("Could not move the prefix aside: {}", e))?;
+    info!(
+        "Wine prefix reset: moved {} to {}",
+        real.display(),
+        backup.display()
+    );
+    Ok(PrefixResetResult {
+        reason: "moved".to_string(),
+        backup_path: Some(backup.to_string_lossy().to_string()),
+    })
+}
+
+#[flutter_rust_bridge::frb(sync)]
+#[cfg(not(target_os = "linux"))]
+pub fn reset_wine_prefix() -> Result<PrefixResetResult, String> {
+    Err("prefix reset is linux-only".to_string())
+}
+
 flutter_logger::flutter_logger_init!(LevelFilter::Debug);

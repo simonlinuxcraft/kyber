@@ -845,7 +845,6 @@ pub fn init_app() {
     #[cfg(target_os = "linux")]
     crate::linux_setup::patch_ea_user_language();
 
-    // Default utilities - feel free to customize
     flutter_rust_bridge::setup_default_user_utils();
 
     // flutter_logger_init! is declared at module level with LevelFilter::Debug,

@@ -1,4 +1,4 @@
-# NOTICE — Kyber Linux Port
+# NOTICE - Kyber Linux Port
 
 This repository is a **Linux port** of upstream
 [ArmchairDevelopers/Kyber](https://github.com/ArmchairDevelopers/Kyber).
@@ -42,7 +42,7 @@ for the Linux port to function:
 | `CLI/cli_payload/umu-wrapper.sh` | ACowAdonis `kyber-bf2-linux` tarball, V1.0.0 | GPL-3.0-or-later (matches tarball) | SPDX header added; vendored 2026-05-05. **Modified 2026-05-07**: added wine-helper container-routing `case`, locale `reg add` and `KYBER_HIDE_CONSOLE` Wine-registry seeding. **Modified 2026-05-18**: dropped D-Bus container routing for wine-helper.exe, exec host wine64 directly. **Modified 2026-05-24**: tolerant Proton-layout detection (files/bin, dist/bin, bin) and resolution of the user-supplied custom Proton path via `KYBER_PROTON_PATH` env-var or `~/.local/share/maxima/custom_proton_path` sidecar file. **Modified 2026-05-25**: also accept the Wine 10 WoW64 single-binary layout (`wine` without `wine64` suffix, e.g. proton-cachyos 11.x). **Modified 2026-05-26**: the WINEPREFIX now stays the shared default - per-Proton routing happens at the `wine/proton` symlink level in maxima-lib instead of via per-prefix WINEPREFIX, keeping save games + EA App login state shared across Proton switches. Each block marked with `MAXIMA-LINUX-PORT-MOD` comments. |
 | `CLI/cli_payload/ea-auth-webview.py` | Same | GPL-3.0-or-later | SPDX header added |
 | `CLI/cli_payload/kyber-auth-helper.sh` | Same | GPL-3.0-or-later | SPDX header added |
-| `CLI/cli_payload/wine-helper.exe` | Same (pre-built Win32 PE binary) | GPL-3.0-or-later (per tarball) | Binary, no in-tree source. **§6(b) written offer applies — see `CLI/cli_payload/README.md` for source-request procedure (GitHub Issues).** |
+| `CLI/cli_payload/wine-helper.exe` | Same (pre-built Win32 PE binary) | GPL-3.0-or-later (per tarball) | Binary, no in-tree source. **§6(b) written offer applies - see `CLI/cli_payload/README.md` for source-request procedure (GitHub Issues).** |
 | `Launcher/third_party/flutter_inappwebview_linux_stub/lib/` | Upstream `flutter_inappwebview_linux` 0.1.0-beta.1 | Apache-2.0 | Verbatim copy; `LICENSE` and `NOTICE.md` carried with the stub |
 | `Launcher/third_party/flutter_inappwebview_linux_stub/linux/*plugin_stub.cc` | New (Kyber Linux Port) | Apache-2.0 (matches host package) | Hand-written no-op replacement |
 | `Launcher/assets/fonts/BarlowCondensed-Medium.ttf`, `…-MediumItalic.ttf` | Barlow project (jpt/barlow), v1.422+ | SIL Open Font License 1.1 | Replacement for proprietary Univers Next Pro Medium Condensed (the `BattlefrontUI` font family in `pubspec.yaml`); Barlow-OFL.txt carried alongside |
@@ -92,11 +92,11 @@ when they convey binaries.
 
 ## F. License files
 
-- `LICENSE` — GPL-3.0 (full text), upstream-Kyber-provided
+- `LICENSE` - GPL-3.0 (full text), upstream-Kyber-provided
 - `Launcher/third_party/flutter_inappwebview_linux_stub/LICENSE`
-  — Apache-2.0 (upstream package license)
-- `ThirdParty/Maxima/LICENSE` — GPL-3.0 (upstream Maxima)
-- `CLI/ThirdParty/Maxima/LICENSE` — GPL-3.0 (upstream Maxima)
+ - Apache-2.0 (upstream package license)
+- `ThirdParty/Maxima/LICENSE` - GPL-3.0 (upstream Maxima)
+- `CLI/ThirdParty/Maxima/LICENSE` - GPL-3.0 (upstream Maxima)
 
 ## G. Aggregation license
 

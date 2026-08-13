@@ -243,7 +243,7 @@ class DownloadOrchestrator with ChangeNotifier {
       return true;
     } on StateError catch (e) {
       // Superseded by a newer ProtocolHelper.awaitNextNxmUrl() request
-      // (concurrent NXM download) — expected, not a real failure. Log
+      // (concurrent NXM download) - expected, not a real failure. Log
       // quietly instead of surfacing the raw exception text.
       _logger.info(
         'Download enqueue superseded by a newer request: '

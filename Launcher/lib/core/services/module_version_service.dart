@@ -362,7 +362,7 @@ class ModuleVersionService {
   ///   1. `current` symlink target → versions/<X.Y.Z> (truth after any
   ///      successful self-update).
   ///   2. PackageInfo.version (the build-time string baked into
-  ///      flutter_assets/version.json — same source the Reference
+  ///      flutter_assets/version.json - same source the Reference
   ///      build relies on).
   ///   3. null if neither is readable (then the dialog falls through
   ///      to "no update available" so we don't trigger spurious
@@ -391,7 +391,7 @@ class ModuleVersionService {
     KyberGRPCService? service,
   }) async {
     // If we already staged an update last run, the user just needs to
-    // restart — re-show the dialog so they can confirm the apply.
+    // restart - re-show the dialog so they can confirm the apply.
     if (LinuxSelfUpdateService.hasPendingUpdate()) {
       return true;
     }
@@ -413,7 +413,7 @@ class ModuleVersionService {
       }
       final current = await _linuxInstalledVersion();
       if (current == null) {
-        // No reliable local version — don't prompt, the user would
+        // No reliable local version - don't prompt, the user would
         // not have any way to make the comparison work.
         return false;
       }
@@ -475,7 +475,7 @@ class ModuleVersionService {
     _logger.info('Staged Linux launcher ${latest.version}; restarting');
 
     // Apply & restart immediately. update_apply.sh swaps the symlink
-    // and execs into the new build. Single call — applyPendingAndRestart
+    // and execs into the new build. Single call - applyPendingAndRestart
     // exit(0)s the current process, anything after this line is dead
     // code.
     await LinuxSelfUpdateService.applyPendingAndRestart();

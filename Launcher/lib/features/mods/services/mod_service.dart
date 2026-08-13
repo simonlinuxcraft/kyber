@@ -63,7 +63,7 @@ class ModService with ChangeNotifier {
     // Fallback when the setup wizard hasn't run (typical on Linux,
     // where the user never went through the Windows installer that
     // pre-populates this Hive key). FileHelper.getModsDirectory()
-    // returns the platform-correct default — same path the install
+    // returns the platform-correct default - same path the install
     // script and mod-import flow already use.
     return FileHelper.getModsDirectory().path;
   }

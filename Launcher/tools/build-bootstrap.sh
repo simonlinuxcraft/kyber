@@ -4,7 +4,7 @@
 # redirect after login and forwards the auth code to the running launcher
 # (which listens on 127.0.0.1:31033 during the login flow).
 #
-# Run this after every `flutter build linux --release` — the Flutter build
+# Run this after every `flutter build linux --release` - the Flutter build
 # does not produce or copy maxima-bootstrap on its own.
 
 set -euo pipefail
@@ -19,7 +19,7 @@ if [[ ! -d "$MAXIMA_DIR" ]]; then
     exit 1
 fi
 if [[ ! -d "$BUNDLE_DIR" ]]; then
-    echo "Launcher bundle not found at $BUNDLE_DIR — run 'flutter build linux --release' first" >&2
+    echo "Launcher bundle not found at $BUNDLE_DIR - run 'flutter build linux --release' first" >&2
     exit 1
 fi
 
@@ -39,7 +39,7 @@ if [[ -f "$DESKTOP_FILE" ]]; then
         echo "      current: $EXEC_LINE"
     fi
 else
-    echo "WARN: $DESKTOP_FILE missing — run xdg-mime default maxima-qrc.desktop x-scheme-handler/qrc after creating it"
+    echo "WARN: $DESKTOP_FILE missing - run xdg-mime default maxima-qrc.desktop x-scheme-handler/qrc after creating it"
 fi
 
 echo ">>> update-desktop-database"

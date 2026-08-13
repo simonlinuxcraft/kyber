@@ -223,7 +223,7 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
               } else if (error.message.contains('failed to run wine command') ||
                   error.message.contains('Failed to inject Kyber') ||
                   error.message.contains('Failed to find PID')) {
-                // FFI inject hit a wall — usually wine-helper not
+                // FFI inject hit a wall - usually wine-helper not
                 // reaching the wineserver, the PID lookup failing, or
                 // a missing DLL import. Recovery dialog gives the user
                 // a retry + CLI option.

@@ -90,7 +90,7 @@ set_target_properties(${BINARY_NAME}
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
 # directory.
-# This must be set BEFORE including generated_plugins.cmake — some plugins
+# This must be set BEFORE including generated_plugins.cmake - some plugins
 # (e.g. flutter_js) overwrite CMAKE_INSTALL_PREFIX with FORCE in their own
 # CMakeLists, which would otherwise route the app bundle into the plugin's
 # binary directory.
@@ -157,7 +157,7 @@ endif()
 
 # Post-install hooks. Must come AFTER include(flutter/generated_plugins.cmake)
 # so that the generated cmake_install.cmake here ends up at the tail of the
-# install order — i.e. after every plugin sub-directory has installed its .so
+# install order - i.e. after every plugin sub-directory has installed its .so
 # files into the bundle. This is the only place where we can patch a plugin
 # binary that's been written by an upstream plugin's own install() rules.
 add_subdirectory(post_install)

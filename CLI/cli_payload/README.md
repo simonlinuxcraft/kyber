@@ -1,4 +1,4 @@
-# `cli_payload/` — vendored Linux-runtime helpers
+# `cli_payload/` - vendored Linux-runtime helpers
 
 This directory contains files that ship with the `kyber_cli` Linux
 build but are *not* products of the Kyber sources themselves. They
@@ -23,7 +23,7 @@ each file's individual SPDX header reflects its upstream license
 | `wine-helper.exe` | `src/share/kyber-bf2/payload/cli/wine-helper.exe` | Pre-built Win32 PE binary, ~786 KiB. **See "wine-helper.exe source" below.** |
 | `bin/xdg-open` | `src/share/kyber-bf2/payload/cli/bin/xdg-open` (if present in tarball) | Shim that prefers the host's `xdg-open` over the umu-pressure-vessel one. |
 
-## `wine-helper.exe` source — GPLv3 §6(b) written offer
+## `wine-helper.exe` source - GPLv3 §6(b) written offer
 
 `wine-helper.exe` is a pre-compiled Windows PE binary that ships in
 the ACowAdonis `kyber-bf2-linux` reference tarball (V1.0.0). It

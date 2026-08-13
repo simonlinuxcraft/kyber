@@ -58,7 +58,7 @@ class ProtocolHelper {
     }
 
     // protocolHandler.getInitialUrl() throws MissingPluginException on
-    // Linux because there's no Linux backend — guard the call so the
+    // Linux because there's no Linux backend - guard the call so the
     // exception doesn't tear down the rest of initialize().
     String? initialUrl;
     try {
@@ -322,7 +322,7 @@ class ProtocolHelper {
   /// Completer that the download service installs when it explicitly
   /// awaits a `nxm://` URL (free-user flow on Linux). When set, the
   /// inotify watcher completes this completer instead of running the
-  /// usual handleCall() / enqueueDownload pipeline — so the same NXM
+  /// usual handleCall() / enqueueDownload pipeline - so the same NXM
   /// response isn't processed twice (once as the awaited token, once
   /// as a freshly enqueued download).
   static Completer<String>? _pendingNxmCompleter;
@@ -363,7 +363,7 @@ class ProtocolHelper {
       final handlerScript = join(exeDir, 'cli', 'bin', 'nxm_handler.sh');
       if (!File(handlerScript).existsSync()) {
         Logger.root.warning(
-          'nxm_handler.sh missing at $handlerScript — nxm:// links from '
+          'nxm_handler.sh missing at $handlerScript - nxm:// links from '
           'the browser will not reach the launcher. Free-user mod '
           'downloads will be unavailable.',
         );
@@ -392,7 +392,7 @@ StartupNotify=false
 MimeType=x-scheme-handler/nxm;
 ''');
 
-      // Best-effort registration. Each step is independent — if one
+      // Best-effort registration. Each step is independent - if one
       // tool is missing on a slim distro we still want the others to
       // run.
       for (final step in <List<String>>[
@@ -444,7 +444,7 @@ MimeType=x-scheme-handler/nxm;
 
       // The bash handler renames a temp file over the target, so the
       // inode changes on each delivery. Watching the file itself would
-      // detach after the first event — watch the parent directory and
+      // detach after the first event - watch the parent directory and
       // filter by path instead.
       final dir = Directory(dirname(responsePath));
       await _linuxNxmWatcher?.cancel();
@@ -481,7 +481,7 @@ MimeType=x-scheme-handler/nxm;
       await windowManager.show();
       await windowManager.focus();
     } catch (_) {
-      // window may not be ready yet during early init — handleCall()
+      // window may not be ready yet during early init - handleCall()
       // below will still process the URL.
     }
 

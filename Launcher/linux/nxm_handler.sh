@@ -13,7 +13,7 @@
 # overwrite it) and the launcher's inotify watcher picks it up.
 #
 # This is the Linux equivalent of the Windows protocol_handler plugin's
-# WM_COPYDATA dispatch — the kyber-bf2-linux reference build uses the
+# WM_COPYDATA dispatch - the kyber-bf2-linux reference build uses the
 # same pattern but with /tmp; we use $XDG_RUNTIME_DIR for safety.
 
 set -eu

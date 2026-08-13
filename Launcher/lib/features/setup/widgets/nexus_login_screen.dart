@@ -296,7 +296,7 @@ class _ExternalBrowserLoginView extends StatelessWidget {
               ] else ...[
                 const Text(
                   'Your default browser will open the NexusMods sign-in page. '
-                  'Once you approve the request, you can return here — the '
+                  'Once you approve the request, you can return here - the '
                   'launcher will detect the login automatically.',
                 ),
                 const SizedBox(height: 24),

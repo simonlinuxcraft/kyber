@@ -125,7 +125,7 @@ class LinuxSelfUpdateService {
       const [],
       mode: ProcessStartMode.detached,
     );
-    // 50ms was too tight — Process.start returns once the fork has
+    // 50ms was too tight - Process.start returns once the fork has
     // happened, but the child still needs to install its own signal
     // handlers before we close stdin/stdout and exit. 250ms is a
     // safer envelope and still imperceptible to the user.
@@ -166,7 +166,7 @@ class LinuxSelfUpdateService {
     Future<RandomAccessFile> claim() async {
       final h = await lockFile.open(mode: FileMode.write);
       try {
-        // Non-blocking exclusive lock — if another launcher instance
+        // Non-blocking exclusive lock - if another launcher instance
         // is already self-updating, fail fast instead of serialising
         // boots behind a multi-minute download.
         await h.lock(FileLock.exclusive);
@@ -214,7 +214,7 @@ class LinuxSelfUpdateService {
 
       // Mandatory SHA-256 verification. Without an integrity check a
       // compromised or hostile CDN could deliver an arbitrary tarball
-      // and chain into path-traversal extract — refuse anything we
+      // and chain into path-traversal extract - refuse anything we
       // cannot verify.
       final expectedHash = _extractFieldOrNull(downloadResp, 'sha256');
       if (expectedHash == null || expectedHash.isEmpty) {
@@ -364,7 +364,7 @@ class LinuxSelfUpdateService {
 
     // extractArchiveToDisk does not validate paths on its own. Reject
     // any entry that would land outside `targetDir` (../etc/passwd) or
-    // that is a symbolic link — both can exfiltrate or hijack files
+    // that is a symbolic link - both can exfiltrate or hijack files
     // outside the staging directory once chained with a hostile
     // tarball.
     final canonicalTarget = p.canonicalize(targetDir);

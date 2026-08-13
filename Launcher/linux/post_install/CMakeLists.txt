@@ -3,7 +3,7 @@
 # scope before traversing sub-directory cmake_install.cmake files. By placing
 # this directory after the include(flutter/generated_plugins.cmake) call, the
 # generated cmake_install.cmake here ends up at the very tail of the install
-# order — after all plugins have written their .so/binaries into the bundle.
+# order - after all plugins have written their .so/binaries into the bundle.
 
 # 1) Resolve the runtime symbol clash between flutter_js's pre-built
 #    libquickjs_c_bridge_plugin.so and libmujs.so.3 on Ubuntu 24.04+.

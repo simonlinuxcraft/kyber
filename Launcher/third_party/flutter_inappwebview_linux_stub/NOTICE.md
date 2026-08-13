@@ -1,4 +1,4 @@
-# `flutter_inappwebview_linux_stub/` — modification notice
+# `flutter_inappwebview_linux_stub/` - modification notice
 
 This directory is a **modified, no-op stub copy** of the upstream
 Dart package

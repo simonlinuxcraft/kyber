@@ -340,7 +340,7 @@ class AccountsAndUpdates extends StatelessWidget {
                 text: 'EA Logout',
                 onClick: () async {
                   // MAXIMA-LINUX-PORT-MOD: same as the other EA Logout button
-                  // higher up in this file — see comment there.
+                  // higher up in this file - see comment there.
                   final home = Platform.environment['HOME'] ?? '';
                   final appdata = Platform.environment['APPDATA'] ?? '';
                   final authPath = Platform.isLinux

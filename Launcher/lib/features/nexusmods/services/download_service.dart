@@ -163,13 +163,13 @@ class NexusDownloadService {
   ///      (nxm_handler.sh) which drops the nxm:// URL into
   ///      $XDG_RUNTIME_DIR/kyber/nxm-response. The inotify watcher in
   ///      ProtocolHelper completes the completer instead of routing the
-  ///      URL through handleCall() — that way we don't enqueue a second,
+  ///      URL through handleCall() - that way we don't enqueue a second,
   ///      duplicate download.
   ///   3. Parse `key` + `expires` out of the captured nxm:// URL and
   ///      hand them to the regular Nexus REST API
   ///      (`/games/{game}/mods/{mod}/files/{file}/download_link.json`).
   ///      Those short-lived tokens are what makes free-user downloads
-  ///      work — without them the same call returns 403.
+  ///      work - without them the same call returns 403.
   static Future<(String, String)> _getNexusDownloadLinux(
     String downloadUrl, {
     int tries = 0,
@@ -207,14 +207,14 @@ class NexusDownloadService {
     // race us. Browser click typically takes >1s, but better safe.
     final nxmCompleter = ProtocolHelper.awaitNextNxmUrl();
 
-    // Open the regular Nexus mod-files page — same URL pattern the
+    // Open the regular Nexus mod-files page - same URL pattern the
     // working tarball build uses. The "Mod Manager Download" button
     // is rendered conditionally by Nexus's frontend JavaScript: it
     // only appears once the browser has a registered handler for the
     // nxm:// scheme. Our xdg-mime registration covers the system
     // level, but each browser additionally needs the user to confirm
     // the handler the FIRST time a nxm:// link is clicked
-    // (security UX — Firefox/Chromium will not trust a system-level
+    // (security UX - Firefox/Chromium will not trust a system-level
     // handler silently). Once accepted, the button shows up on
     // every subsequent visit and our xdg-mime → nxm_handler.sh →
     // inotify pipeline takes over automatically.
@@ -233,7 +233,7 @@ class NexusDownloadService {
       message: 'Opening the mod page in your browser. Click "Mod '
           'Manager Download" there. If the button is missing: enter '
           '"nxm:test" in the address bar once and select "Kyber NXM '
-          'Handler" — the button will then appear on every mod page.',
+          'Handler" - the button will then appear on every mod page.',
       severity: InfoBarSeverity.info,
     );
     try {

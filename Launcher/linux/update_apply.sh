@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 simonlinuxcraft
 #
-# update_apply.sh — Sidecar that swaps a freshly staged launcher build
+# update_apply.sh - Sidecar that swaps a freshly staged launcher build
 # into the active "current" slot under $HOME/.local/share/kyber/launcher,
 # then re-execs the launcher.
 #
@@ -56,7 +56,7 @@ bump_attempts() {
     # Fallback without jq: persist counter as a plain integer in a
     # sidecar file. Counting bytes via wc -c is fragile (wc -c on
     # `printf '.'` includes implicit-newline, locale, fs-block edge
-    # cases) — keep it simple.
+    # cases) - keep it simple.
     local counter_file="$KYBER_DIR/update_pending.attempts"
     if [ -s "$counter_file" ]; then
       attempts=$(cat "$counter_file" 2>/dev/null || echo 0)
@@ -121,7 +121,7 @@ fi
 log "swapping current -> versions/$staged_version"
 ln -sfn "versions/$staged_version" "$CURRENT_LINK"
 
-# Update succeeded — drop the marker so we don't try again next boot.
+# Update succeeded - drop the marker so we don't try again next boot.
 rm -f "$PENDING_FILE" "$KYBER_DIR/update_pending.attempts"
 log "update_apply succeeded"
 

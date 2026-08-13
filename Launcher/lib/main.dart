@@ -152,7 +152,7 @@ void main() async {
       LicenseRegistry.addLicense(() async* {
         yield const LicenseEntryWithLineBreaks(
           ['kyber_launcher (Kyber Linux Port)'],
-          '''Kyber Linux Port — unofficial Linux build of the Kyber mod launcher for Star Wars Battlefront II.
+          '''Kyber Linux Port - unofficial Linux build of the Kyber mod launcher for Star Wars Battlefront II.
 
 Copyright (C) 2024 ArmchairDevelopers (upstream Kyber)
 Copyright (C) 2026 Kyber Linux Port contributors

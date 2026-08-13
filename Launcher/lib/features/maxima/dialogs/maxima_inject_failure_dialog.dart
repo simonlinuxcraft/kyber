@@ -64,7 +64,7 @@ class _MaximaInjectFailureDialogState extends State<MaximaInjectFailureDialog> {
     if (widget.initializeRequest == null) {
       NotificationService.error(
         message:
-            'No launch context here — close this dialog, restart the launcher, and try again.',
+            'No launch context here - close this dialog, restart the launcher, and try again.',
       );
       return;
     }

@@ -8,7 +8,6 @@ pubspec_overrides.yaml
 .dart_tool/
 .idea/
 *.iml
-.claude/
 build/
 *.log
 

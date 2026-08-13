@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 simonlinuxcraft
 #
-# kyber-bf2 — Launcher entry point that prefers the per-user self-update
+# kyber-bf2 - Launcher entry point that prefers the per-user self-update
 # slot over the system bundle.
 #
 # When the .deb is installed, this script ends up at /usr/bin/kyber-bf2
@@ -52,7 +52,7 @@ for candidate in \
 done
 
 # Apply a pending update before launching anything. The sidecar swaps
-# `current` and exits — we run it with NOEXEC=1 so we control the
+# `current` and exits - we run it with NOEXEC=1 so we control the
 # subsequent exec ourselves and can fall through to the right
 # launcher binary.
 if [ -s "$PENDING_FILE" ]; then

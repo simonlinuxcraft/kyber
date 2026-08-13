@@ -1,4 +1,4 @@
-# `desktop_webview_window_stub/` — modification notice
+# `desktop_webview_window_stub/` - modification notice
 
 This directory is a modified, no-op stub copy of the upstream Dart package
 [`desktop_webview_window`](https://github.com/MixinNetwork/flutter-plugins/tree/main/packages/desktop_webview_window),

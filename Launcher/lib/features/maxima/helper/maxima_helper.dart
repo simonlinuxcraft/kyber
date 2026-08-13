@@ -295,7 +295,7 @@ class MaximaHelper {
   }
 
   // CLI fallback. Only invoked from the recovery dialog when the FFI
-  // inject keeps failing — spawns kyber_cli as a fresh subprocess with
+  // inject keeps failing - spawns kyber_cli as a fresh subprocess with
   // its own environment. Helps on the odd distro combo where wine-helper
   // can't see BF2's wineserver from inside the Flutter process.
   static Future<MaximaGameInstance> startGameViaCli({
@@ -334,7 +334,7 @@ class MaximaHelper {
       'KYBER_API_HOSTNAME': kyberService.host,
       'KYBER_HTTP_HOSTNAME': kyberService.httpHostname,
       'KYBER_MODULE_VERSION': moduleVersion,
-      // Suppress Kyber.dll's debug console window on Linux — beta builds
+      // Suppress Kyber.dll's debug console window on Linux - beta builds
       // call AllocConsole() unless KYBER_HIDE_CONSOLE is set, which on
       // Windows GUI launches is set by the production launcher but not
       // wired up on the Linux side. Logs continue to be written to the

@@ -11,7 +11,7 @@ import 'package:kyber_launcher/features/plugin_manager/plugins/bsm_linux_host.da
 import 'package:path/path.dart' as p;
 
 class BSMPlugin {
-  /// File name of the plugin DLL — fixed by the Better Sabers Mod
+  /// File name of the plugin DLL - fixed by the Better Sabers Mod
   /// Frosty plugin and validated below.
   static const _libName = 'BetterSabersPlugin.dll';
 

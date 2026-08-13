@@ -69,7 +69,41 @@ pub async fn downloader_list_entries(d: RustAutoOpaque<DownloaderHandle>) -> Vec
         .collect()
 }
 
+// MAXIMA-LINUX-PORT-MOD 2026-08-13: reject zip entry names that would escape the
+// downloader's output directory. maxima-lib's download_single_file does
+// `self.path.join(entry.name())`, and Path::join with a rooted component
+// discards the base entirely, so a crafted name can write anywhere the launcher
+// can write. The zips are mod collections, i.e. user-generated content, so the
+// name is untrusted input. Subdirectories stay allowed: download_single_file
+// creates parent dirs and handles "dir/" entries. Backslashes count as
+// separators too, because they are on Windows and an entry written by a Windows
+// zipper must not sneak a ".." past this check on Linux either. Same guarantee
+// zip's enclosed_name() gives in api/archive.rs, without pulling that type in.
+fn reject_unsafe_entry_name(name: &str) -> Result<(), String> {
+    let reject = || Err(format!("Unsafe zip entry name, refusing to extract: {name}"));
+
+    if name.is_empty() {
+        return reject();
+    }
+    // Rooted: "/etc/x", "\\server\share", "C:\x", "C:/x".
+    if name.starts_with('/') || name.starts_with('\\') {
+        return reject();
+    }
+    // b':' is ASCII, so it can never be a UTF-8 continuation byte. Indexing
+    // byte 1 is safe for any input.
+    if name.len() >= 2 && name.as_bytes()[1] == b':' {
+        return reject();
+    }
+    if name.split(['/', '\\']).any(|component| component == "..") {
+        return reject();
+    }
+
+    Ok(())
+}
+
 fn find_entry<'a>(d: &'a ZipDownloader, entry_name: &str) -> Result<&'a ZipFileEntry, String> {
+    reject_unsafe_entry_name(entry_name)?;
+
     d.manifest()
         .entries()
         .iter()
@@ -131,4 +165,28 @@ pub async fn downloader_read_entry_bytes(
 }
 
 pub fn downloader_dispose(_d: RustAutoOpaque<DownloaderHandle>) {
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reject_unsafe_entry_name;
+
+    #[test]
+    fn accepts_real_collection_entries() {
+        assert!(reject_unsafe_entry_name("Foo.fbmod").is_ok());
+        assert!(reject_unsafe_entry_name("My Collection.fbcollection").is_ok());
+        assert!(reject_unsafe_entry_name("sub/dir/Foo.fbmod").is_ok());
+        assert!(reject_unsafe_entry_name("sub/dir/").is_ok());
+        assert!(reject_unsafe_entry_name("a..b.fbmod").is_ok());
+    }
+
+    #[test]
+    fn rejects_traversal_and_rooted_names() {
+        assert!(reject_unsafe_entry_name("../../.bashrc").is_err());
+        assert!(reject_unsafe_entry_name("a/../../b").is_err());
+        assert!(reject_unsafe_entry_name("/etc/passwd").is_err());
+        assert!(reject_unsafe_entry_name("..\\..\\x").is_err());
+        assert!(reject_unsafe_entry_name("C:\\Windows\\x").is_err());
+        assert!(reject_unsafe_entry_name("").is_err());
+    }
 }

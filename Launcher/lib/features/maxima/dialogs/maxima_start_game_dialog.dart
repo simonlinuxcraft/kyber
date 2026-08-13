@@ -262,6 +262,43 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                   ),
                 );
                 return;
+              } else if (error.message.contains(
+                'without connecting to the launcher',
+              )) {
+                // KYBER-LINUX-PORT-MOD 2026-08-13: the launch-wait loop gave
+                // up because the game exited before reaching the LSX
+                // handshake. The message is a multi-sentence instruction, so a
+                // toast is useless for it: six lines, ellipsised, gone after
+                // five seconds. Same treatment as the missing-prefix case
+                // above, with wider constraints because the text is longer.
+                showKyberDialog(
+                  context: navigatorKey.currentContext!,
+                  builder: (context) => KyberContentDialog(
+                    constraints: const BoxConstraints(
+                      maxWidth: 560,
+                      maxHeight: 640,
+                    ),
+                    title: Text('Game did not start'.toUpperCase()),
+                    content: Text(
+                      // anyhow appends "Stack backtrace:" and the frames to
+                      // the message. That is noise for a player and pushes the
+                      // actual instruction out of view, so cut it. The full
+                      // trace stays in the log.
+                      error.message.split('Stack backtrace:').first.trim(),
+                      style: const TextStyle(
+                        fontFamily: FontFamily.battlefrontUI,
+                        fontSize: 17,
+                      ),
+                    ),
+                    actions: [
+                      KyberButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        text: 'Close',
+                      ),
+                    ],
+                  ),
+                );
+                return;
               }
 
               NotificationService.showNotification(

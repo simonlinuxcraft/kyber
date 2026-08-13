@@ -527,6 +527,43 @@ pub async fn start_game(
         cloud_saves: false,
     }).await?;
 
+    // MAXIMA-LINUX-PORT-MOD 2026-08-13: hard deadline for the handshake wait.
+    // maxima's own "is the launch over" decision (playing() below) is tuned for
+    // a different question, whether a *running* game is still alive, where the
+    // Linux process scan is blind and the grace window has to be generous. That
+    // window is 300s, which as a wait for the handshake is far too long: a
+    // player stares at "GAME LAUNCHING" for five minutes before being told
+    // anything. The handshake is a much narrower thing. Measured launches on a
+    // working setup reach it in 11 to 19 seconds, so 120s is six to ten times
+    // the real figure and still covers a cold start on slow storage with shader
+    // compilation. Not lower than that: cutting a slow but healthy launch short
+    // is worse than making someone wait, because it reports a failure that did
+    // not happen. Whichever of the two conditions fires first wins.
+    const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+    let wait_started = std::time::Instant::now();
+
+    // MAXIMA-LINUX-PORT-MOD 2026-08-13: the timeout above is the backstop. In
+    // the common failure case we can know much sooner: if no wineserver is
+    // attached to our prefix any more, nothing is left that could ever produce
+    // the handshake, so waiting out the full two minutes only makes the user
+    // sit in front of a frozen-looking dialog. Two guards keep this from
+    // firing on a healthy launch:
+    //   - a start-up window, because Proton needs a moment to bring the
+    //     wineserver up (umu may still be staging its runtime on slow storage),
+    //   - and once a wineserver has been seen, its disappearance is what counts,
+    //     which is unambiguous.
+    // The /proc walk is rate limited. It must never run on the 25ms tick: that
+    // exact pattern (scanning all of /proc at 40 Hz) is what previously drove a
+    // Bazzite host into a kernel panic.
+    #[cfg(target_os = "linux")]
+    const WINE_STARTUP_WINDOW: std::time::Duration = std::time::Duration::from_secs(45);
+    #[cfg(target_os = "linux")]
+    const WINE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+    #[cfg(target_os = "linux")]
+    let mut wineserver_seen = false;
+    #[cfg(target_os = "linux")]
+    let mut last_wine_check = std::time::Instant::now();
+
     loop {
         let mut maxima = maxima_arc.lock().await;
         for event in maxima.consume_pending_events() {
@@ -546,6 +583,64 @@ pub async fn start_game(
         }
 
         maxima.update().await;
+
+        // MAXIMA-LINUX-PORT-MOD 2026-08-13: bound the wait. This loop used to
+        // have exactly one exit, the ChallengeResponse above, so a launch that
+        // died before BF2 ever opened its LSX connection left the launcher on
+        // "GAME LAUNCHING" forever with no error at all. Reported from the
+        // field: the game window appears for a moment under Valve Proton 10.0
+        // and Experimental, then exits. update_playing_status() already decides
+        // when a launch is over (never while LSX is connected or the bootstrap
+        // is alive, otherwise after the post-bootstrap-exit grace window) and
+        // logs the Proton and Wine output on the way, so reuse that decision
+        // instead of adding a second, competing timeout. Same pattern as
+        // lsx_get_event_stream above.
+        // Rate-limited liveness probe, see the constants above.
+        #[cfg(target_os = "linux")]
+        let wine_gone = if last_wine_check.elapsed() >= WINE_CHECK_INTERVAL {
+            last_wine_check = std::time::Instant::now();
+            if is_maxima_wineserver_alive() {
+                wineserver_seen = true;
+                false
+            } else {
+                // Either it came up and died, or it never came up at all and
+                // the start-up window has passed.
+                wineserver_seen || wait_started.elapsed() >= WINE_STARTUP_WINDOW
+            }
+        } else {
+            false
+        };
+        #[cfg(not(target_os = "linux"))]
+        let wine_gone = false;
+
+        if maxima.playing().is_none() || wait_started.elapsed() >= HANDSHAKE_TIMEOUT || wine_gone {
+            // Drain once more before giving up: a ChallengeResponse queued
+            // between the consume above and this point is a valid launch and
+            // has to win over the bail.
+            for event in maxima.consume_pending_events() {
+                if let MaximaEvent::ReceivedLSXRequest(pid, request) = event {
+                    let name: &'static str = request.into();
+                    if name == "ChallengeResponse" {
+                        debug!("Received ChallengeResponse from LSX for PID {}!", pid);
+                        return Ok(pid);
+                    }
+                }
+            }
+
+            bail!(
+                "Battlefront II started and exited again without connecting to \
+                 the launcher. The most likely cause is the Proton version: \
+                 Kyber is tested against GE-Proton10-34, and Valve's Proton 10.0 \
+                 and Proton Experimental have been reported to fail exactly like \
+                 this. Clear the custom Proton path in settings so Kyber uses the \
+                 version it expects, or point it at GE-Proton10-34. Other causes \
+                 produce the same symptom, among them a damaged Wine prefix, \
+                 missing or modified game files, and the game being killed for \
+                 running out of memory. The launcher log holds the Proton and \
+                 Wine output of this launch."
+            );
+        }
+
         drop(maxima);
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }

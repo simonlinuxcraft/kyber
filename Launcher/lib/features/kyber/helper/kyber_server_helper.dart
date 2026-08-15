@@ -144,7 +144,15 @@ class KyberServerHelper {
         );
       }
     } on GrpcError catch (e) {
-      _logger.severe('Failed to join server: ${e.message}', e);
+      // MAXIMA-LINUX-PORT-MOD 2026-08-15: a full server is the server answering
+      // normally, not a failure of ours. Logging it at severe put four of these
+      // in a bug report and sent the reader looking for a defect that was not
+      // there. The user still gets the notification below either way.
+      if (e.code == StatusCode.resourceExhausted) {
+        _logger.info('Server refused the join: ${e.message}');
+      } else {
+        _logger.severe('Failed to join server: ${e.message}', e);
+      }
 
       // If the DLL-gRPC port refused our connection, the previously
       // injected Kyber.dll is gone (BF2 was closed or crashed) but the

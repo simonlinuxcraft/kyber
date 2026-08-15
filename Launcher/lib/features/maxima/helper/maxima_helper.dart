@@ -207,6 +207,38 @@ class MaximaHelper {
       } else {
         ProcessEnv.delete('KYBER_ENABLE_HOST_NAMESPACE');
       }
+
+      // MAXIMA-LINUX-PORT-MOD 2026-08-15: tell pressure-vessel which host
+      // directories the game has to be able to see. The Steam runtime container
+      // only exposes a fixed set of locations, roughly $HOME and the Steam
+      // libraries. Mods or a game kept anywhere else, a second drive mounted at
+      // /HDD for example, simply do not exist once the game runs: BF2 loads no
+      // mods, drops into the vanilla menu and logs nothing about it, because
+      // from its point of view the directory was empty. Issue #20.
+      //
+      // Set before startGame, not at the ModData conversion further down: by
+      // then the container is already up. Paths inside $HOME are covered anyway,
+      // listing them again costs nothing and keeps this free of guesswork about
+      // what the runtime happens to mount.
+      final containerPaths = <String>{
+        FileHelper.getModuleDirectory().path,
+        if (gamePath != null && gamePath.isNotEmpty) gamePath,
+        if (gameDataPath != null && gameDataPath.isNotEmpty) gameDataPath,
+        if (initializeRequest.hasModData() &&
+            initializeRequest.modData.basePath.startsWith('/'))
+          initializeRequest.modData.basePath,
+      }..removeWhere((p) => p.isEmpty);
+
+      // Never drop what the user or the AppImage already asked for.
+      final existing =
+          Platform.environment['PRESSURE_VESSEL_FILESYSTEMS_RW'] ?? '';
+      if (existing.isNotEmpty) containerPaths.addAll(existing.split(':'));
+
+      if (containerPaths.isNotEmpty) {
+        final value = containerPaths.join(':');
+        ProcessEnv.set('PRESSURE_VESSEL_FILESYSTEMS_RW', value);
+        _logger.info('Exposing to the game container: $value');
+      }
     }
 
     final gameClient = ClientGRPCService('127.0.0.1', interfacePort);

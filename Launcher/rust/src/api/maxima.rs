@@ -598,15 +598,15 @@ pub async fn start_game(
 
             bail!(
                 "Battlefront II started and exited again without connecting to \
-                 the launcher. The most likely cause is the Proton version: \
-                 Kyber is tested against GE-Proton10-34, and Valve's Proton 10.0 \
-                 and Proton Experimental have been reported to fail exactly like \
-                 this. Clear the custom Proton path in settings so Kyber uses the \
-                 version it expects, or point it at GE-Proton10-34. Other causes \
-                 produce the same symptom, among them a damaged Wine prefix, \
-                 missing or modified game files, and the game being killed for \
-                 running out of memory. The launcher log holds the Proton and \
-                 Wine output of this launch."
+                 the launcher. The Proton version is worth trying first: Kyber \
+                 is tested against GE-Proton10-34, so if the custom Proton path \
+                 in settings points somewhere else, clear it or point it at \
+                 GE-Proton10-34 and try again. Other builds do work for other \
+                 players, so this is a first thing to rule out rather than a \
+                 known fault. Several unrelated causes produce the same symptom, \
+                 among them a damaged Wine prefix, missing or modified game \
+                 files, and the game being killed for running out of memory. The \
+                 launcher log holds the Proton and Wine output of this launch."
             );
         }
 

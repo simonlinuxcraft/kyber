@@ -191,11 +191,46 @@ class MaximaHelper {
       ProcessEnv.delete('KYBER_LOG_LEVEL');
     }
 
+    // MAXIMA-LINUX-PORT-MOD 2026-08-15: the UTS-namespace branch in launch.rs
+    // exists so a listen server resolves its own hostname to 127.0.0.1. Joins
+    // never need it, but on Ubuntu it fired for every launch because the
+    // hostname maps to 127.0.1.1, and there it hung the launch outright: the
+    // game spawned, never connected back over LSX and never exited. Two user
+    // logs show 7 such launches and not one reaching the DLL handshake.
+    //
+    // launch.rs is opt-in now, so the default everywhere (including the CLI) is
+    // no namespace. Hosting is the only case that needs it, so it is the only
+    // case that asks for it.
+    if (Platform.isLinux) {
+      if (initializeRequest.hasStartServer()) {
+        ProcessEnv.set('KYBER_ENABLE_HOST_NAMESPACE', '1');
+      } else {
+        ProcessEnv.delete('KYBER_ENABLE_HOST_NAMESPACE');
+      }
+    }
+
     final gameClient = ClientGRPCService('127.0.0.1', interfacePort);
-    final gamePID = await maxima.startGame(
-      gameSlug: gameSlug ?? 'star-wars-battlefront-2',
-      gamePathOverride: gamePath ?? Preferences.general.customGamePath,
-    );
+    // MAXIMA-LINUX-PORT-MOD 2026-08-15: the PID resolves only when the game
+    // opens its LSX connection, so a game that starts but never connects
+    // leaves this future pending and the dialog spinning with no log line.
+    // 300s mirrors GRACE in maxima-lib launch.rs (cold Deck prefix).
+    // ponytail: a first-run GE-Proton download shares this window and can trip
+    // the timeout. Gate on get_proton_download_progress if that shows up.
+    final gamePID = await maxima
+        .startGame(
+          gameSlug: gameSlug ?? 'star-wars-battlefront-2',
+          gamePathOverride: gamePath ?? Preferences.general.customGamePath,
+        )
+        .timeout(
+          const Duration(seconds: 300),
+          onTimeout: () {
+            _logger.severe(
+              'startGame did not resolve within 300s, no LSX '
+              'connect from the game',
+            );
+            throw const GamePidNotFoundException();
+          },
+        );
     _logger.info('Started game with PID: $gamePID');
 
     // A PID of 0 means Maxima could not resolve the game process (the Wine

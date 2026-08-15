@@ -134,7 +134,11 @@ class _CategorizedModListState extends State<CategorizedModList> {
                   return Center(child: Text(state.error));
                 }
 
-                state as ModBrowserLoaded;
+                // ModBrowserInitial reaches this build when the grid mounts
+                // before the cubit has started loading; the cast threw instead.
+                if (state is! ModBrowserLoaded) {
+                  return const Center(child: ProgressRing());
+                }
 
                 return GridView.builder(
                   gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(

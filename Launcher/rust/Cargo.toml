@@ -8,7 +8,13 @@ license = "GPL-3.0-only"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-flutter_rust_bridge = { version = "=2.11.1", default-features = false, features = ["anyhow", "user-utils", "dart-opaque", "backtrace", "thread-pool", "rust-async", "uuid"] }
+# MAXIMA-LINUX-PORT-MOD 2026-08-15: "log" added. Without it flutter_rust_bridge
+# reports a dropped stream sink through println!, which panics on EPIPE once our
+# stdout is a pipe nobody reads any more. That took the launcher down mid-session
+# with "failed printing to stdout" right after a game start. With the feature the
+# same message goes through the log crate into the launcher log, where the
+# flutter_logger below already receives it.
+flutter_rust_bridge = { version = "=2.11.1", default-features = false, features = ["anyhow", "user-utils", "dart-opaque", "backtrace", "thread-pool", "rust-async", "uuid", "log"] }
 tokio = { version = "1.36.0", features = ["full", "rt", "rt-multi-thread", "time", "net"] }
 tokio-util = "0.7"
 log = "0.4.20"

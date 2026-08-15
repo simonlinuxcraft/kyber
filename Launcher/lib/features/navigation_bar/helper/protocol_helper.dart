@@ -360,10 +360,10 @@ class ProtocolHelper {
   static Future<void> _registerLinuxNxmHandler() async {
     try {
       final exeDir = dirname(Platform.resolvedExecutable);
-      final handlerScript = join(exeDir, 'cli', 'bin', 'nxm_handler.sh');
-      if (!File(handlerScript).existsSync()) {
+      final bundledScript = join(exeDir, 'cli', 'bin', 'nxm_handler.sh');
+      if (!File(bundledScript).existsSync()) {
         Logger.root.warning(
-          'nxm_handler.sh missing at $handlerScript - nxm:// links from '
+          'nxm_handler.sh missing at $bundledScript - nxm:// links from '
           'the browser will not reach the launcher. Free-user mod '
           'downloads will be unavailable.',
         );
@@ -373,6 +373,24 @@ class ProtocolHelper {
       final home = Platform.environment['HOME'];
       if (home == null) {
         Logger.root.warning('\$HOME unset; cannot register nxm handler');
+        return;
+      }
+
+      // Register a copy under $HOME, never the bundled path. Inside an AppImage
+      // exeDir is /tmp/.mount_KyberXXXXXX, which gets a fresh name on every
+      // start and is invisible to a sandboxed browser, so the handler the
+      // browser ran was either stale or unreachable and the download waited out
+      // its 180s timeout. Overwritten each start so updates still take effect.
+      final handlerScript =
+          join(home, '.local', 'share', 'kyber', 'bin', 'nxm_handler.sh');
+      try {
+        await Directory(dirname(handlerScript)).create(recursive: true);
+        await File(bundledScript).copy(handlerScript);
+        await Process.run('chmod', ['+x', handlerScript]);
+      } catch (e) {
+        Logger.root.warning(
+          'Could not install nxm_handler.sh to $handlerScript: $e',
+        );
         return;
       }
       final appsDir =

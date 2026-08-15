@@ -81,6 +81,12 @@ class DownloadLinkResolver {
         type: DownloadLinkType.nexus,
         size: request.size,
       );
+    } on StateError catch (e) {
+      // A newer nxm:// wait replaced this one (user started a second download).
+      // DownloadOrchestrator treats this as expected control flow, so logging it
+      // at severe only made every concurrent download look like a failure.
+      _logger.info('Nexus link resolve superseded by a newer request: $e');
+      rethrow;
     } catch (e, s) {
       _logger.severe('Failed to resolve Nexus link', e, s);
       rethrow;

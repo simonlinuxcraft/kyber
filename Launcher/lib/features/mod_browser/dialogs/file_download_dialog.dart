@@ -70,6 +70,8 @@ class _FileDownloadDialogState extends State<FileDownloadDialog> {
         KyberButton(
           text: 'Download',
           onPressed: () async {
+            final navigator = Navigator.of(context);
+
             // Use new DownloadRequest API
             final request = DownloadRequest(
               link:
@@ -86,7 +88,13 @@ class _FileDownloadDialogState extends State<FileDownloadDialog> {
                 message: 'Downloading mod ${widget.file.name}',
               );
             }
-            Navigator.of(context).pop();
+
+            // On Linux a free-account download parks here for up to 180s
+            // waiting for the browser's nxm:// reply, so the user has usually
+            // closed the dialog by now. Popping a dead route threw
+            // "Null check operator used on a null value" instead.
+            if (!mounted) return;
+            navigator.pop();
           },
         ),
       ],

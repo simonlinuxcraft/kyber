@@ -21,7 +21,12 @@ class ModUpdateService with ChangeNotifier {
 
   /// Trailing part of a Nexus download folder: mod id, then version parts,
   /// then the upload timestamp.
-  static final _folderPattern = RegExp(r'-(\d{2,7})-[\w.]+(?:-[\w.]+)*-(\d{10})$');
+  static final _folderPattern = RegExp(
+    r'-(\d{2,7})-[\w.]+(?:-[\w.]+)*-(\d{10})$',
+  );
+  static final _modernFolderPattern = RegExp(
+    r' (\d{2,7}) [^ ]+ (\d{4}-\d{2}-\d{2}T\d{2}-\d{2}Z) [A-Za-z0-9]+$',
+  );
 
   final _logger = Logger('mod_update_service');
 
@@ -35,48 +40,78 @@ class ModUpdateService with ChangeNotifier {
   DateTime? get lastCheck => _lastCheck;
 
   int _failed = 0;
+  int _checked = 0;
+  int _updateCount = 0;
 
   /// How many mods could not be checked in the last run. Zero results plus
   /// failures is not the same as "everything is current".
   int get failedCount => _failed;
+  int get checkedCount => _checked;
 
-  int get count => _updates.length;
+  int get count => _updateCount;
   ModUpdate? updateFor(String filename) => _updates[filename];
   bool hasUpdate(String filename) => _updates.containsKey(filename);
 
-  /// Asks Nexus about every mod that carries an id, one request each.
+  /// Asks Nexus about every identifiable download, caching shared mod pages.
   /// Nexus allows 2500 requests a day, so this belongs on a button rather
   /// than on every rebuild of the mod list.
   Future<void> check(List<FrostyMod> mods) async {
     if (_checking) return;
     _checking = true;
     _updates.clear();
+    _updateCount = 0;
     notifyListeners();
 
     final client = sl.get<NexusModsService>().nexusBridge.apiClient;
-    var checked = 0;
     _failed = 0;
+    final groups = <ModUpdateReference, List<FrostyMod>>{};
+    for (final mod in mods) {
+      final ref = referenceFor(mod.filename);
+      if (ref != null) groups.putIfAbsent(ref, () => []).add(mod);
+    }
+    _checked = groups.length;
+    final responses = <int, NexusModFile>{};
+    final failedModIds = <int>{};
 
     try {
-      for (final mod in mods) {
-        final ref = referenceFor(mod.filename);
-        if (ref == null) continue;
-        checked++;
-
+      for (final entry in groups.entries) {
+        final ref = entry.key;
+        if (failedModIds.contains(ref.modId)) {
+          _failed++;
+          continue;
+        }
         try {
-          final response = await client.getModFiles(_game, ref.modId);
-          final successor = successorOf(response, ref.uploaded);
+          final response =
+              responses[ref.modId] ??
+              await client.getModFiles(_game, ref.modId);
+          responses[ref.modId] = response;
+          final installed = _installedFileFor(response, ref);
+          if (installed == null) {
+            _failed++;
+            _logger.warning(
+              'Installed Nexus file could not be identified for mod '
+              '${ref.modId}',
+            );
+            continue;
+          }
+          final successor = _successorAfter(response, installed.fileId);
           if (successor != null) {
-            _updates[mod.filename] = ModUpdate(
+            final update = ModUpdate(
               modId: ref.modId,
               fileId: successor.fileId,
               name: successor.name,
               version: successor.modVersion,
               uploaded: successor.uploadedTime,
+              uploadedTimestamp: successor.uploadedTimestamp,
             );
+            for (final mod in entry.value) {
+              _updates[mod.filename] = update;
+            }
+            _updateCount++;
           }
         } on Object catch (e) {
           _failed++;
+          failedModIds.add(ref.modId);
           _logger.warning('Update check failed for mod ${ref.modId}: $e');
         }
       }
@@ -84,7 +119,7 @@ class ModUpdateService with ChangeNotifier {
       _checking = false;
       _lastCheck = DateTime.now();
       _logger.info(
-        'Checked $checked mods, ${_updates.length} have updates, '
+        'Checked $_checked identifiable downloads, $_updateCount have updates, '
         '$_failed failed',
       );
       notifyListeners();
@@ -94,6 +129,8 @@ class ModUpdateService with ChangeNotifier {
   void clear() {
     _updates.clear();
     _failed = 0;
+    _checked = 0;
+    _updateCount = 0;
     _lastCheck = null;
     notifyListeners();
   }
@@ -113,7 +150,33 @@ class ModUpdateService with ChangeNotifier {
         .firstOrNull;
     if (installed == null) return null;
 
-    var currentId = installed.fileId;
+    return _successorAfter(response, installed.fileId);
+  }
+
+  static FileElement? _installedFileFor(
+    NexusModFile response,
+    ModUpdateReference reference,
+  ) {
+    return reference.uploaded != null
+        ? response.files
+              .where((file) => file.uploadedTimestamp == reference.uploaded)
+              .firstOrNull
+        : response.files.where((file) {
+            final uploaded = file.uploadedTime.toUtc();
+            final minute = reference.uploadedMinute!;
+            return uploaded.year == minute.year &&
+                uploaded.month == minute.month &&
+                uploaded.day == minute.day &&
+                uploaded.hour == minute.hour &&
+                uploaded.minute == minute.minute;
+          }).singleOrNull;
+  }
+
+  static FileElement? _successorAfter(
+    NexusModFile response,
+    int installedFileId,
+  ) {
+    var currentId = installedFileId;
     FileElement? newest;
     final seen = <int>{currentId};
 
@@ -132,16 +195,35 @@ class ModUpdateService with ChangeNotifier {
   }
 
   @visibleForTesting
-  static ({int modId, int uploaded})? referenceFor(String filename) {
-    final folder = filename.split('/').first;
+  static ModUpdateReference? referenceFor(String filename) {
+    final folder = filename.replaceAll(r'\', '/').split('/').first;
     final match = _folderPattern.firstMatch(folder);
-    if (match == null) return null;
+    if (match != null) {
+      return (
+        modId: int.parse(match.group(1)!),
+        uploaded: int.parse(match.group(2)!),
+        uploadedMinute: null,
+      );
+    }
+
+    final modern = _modernFolderPattern.firstMatch(folder);
+    if (modern == null) return null;
+    final value = modern.group(2)!;
     return (
-      modId: int.parse(match.group(1)!),
-      uploaded: int.parse(match.group(2)!),
+      modId: int.parse(modern.group(1)!),
+      uploaded: null,
+      uploadedMinute: DateTime.parse(
+        '${value.substring(0, 13)}:${value.substring(14, 16)}:00Z',
+      ),
     );
   }
 }
+
+typedef ModUpdateReference = ({
+  int modId,
+  int? uploaded,
+  DateTime? uploadedMinute,
+});
 
 class ModUpdate {
   const ModUpdate({
@@ -150,6 +232,7 @@ class ModUpdate {
     required this.name,
     required this.version,
     required this.uploaded,
+    required this.uploadedTimestamp,
   });
 
   final int modId;
@@ -157,6 +240,7 @@ class ModUpdate {
   final String name;
   final String version;
   final DateTime uploaded;
+  final int uploadedTimestamp;
 
   String get nexusUrl =>
       'https://www.nexusmods.com/starwarsbattlefront22017/mods/$modId';

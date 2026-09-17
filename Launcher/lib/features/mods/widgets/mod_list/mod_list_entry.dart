@@ -4,23 +4,21 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:kyber_collection/kyber_collection.dart';
 import 'package:kyber_launcher/core/config/colors.dart';
+import 'package:kyber_launcher/core/services/notification_service.dart';
+import 'package:kyber_launcher/features/download_manager/models/download_request.dart';
+import 'package:kyber_launcher/features/download_manager/services/download_orchestrator.dart';
 import 'package:kyber_launcher/features/frosty/widgets/mod_icon.dart';
 import 'package:kyber_launcher/features/mod_browser/widgets/mod_details/mod_images.dart';
 import 'package:kyber_launcher/features/mod_collections/dialogs/duplicated_file_dialog.dart';
 import 'package:kyber_launcher/features/mod_collections/providers/mod_collection_cubit.dart';
 import 'package:kyber_launcher/features/mods/providers/collection_editor_cubit.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
+import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
 import 'package:kyber_launcher/features/server_browser/widgets/server_list/server_list_header.dart';
 import 'package:kyber_launcher/features/settings/dialogs/chromium_download_dialog.dart';
-import 'package:kyber_launcher/core/services/notification_service.dart';
-import 'package:kyber_launcher/features/download_manager/models/download_request.dart';
-import 'package:kyber_launcher/features/download_manager/services/download_orchestrator.dart';
-import 'package:kyber_launcher/features/nexusmods/services/nexusmods_service.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 import 'package:kyber_launcher/gen/assets.gen.dart';
-import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
-import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
+import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/shared/ui/buttons/custom_icon_button.dart';
 import 'package:kyber_launcher/shared/ui/dialog/kyber_dialog.dart';
 import 'package:kyber_launcher/shared/ui/utils/button_builder.dart';
@@ -88,10 +86,12 @@ class ModListEntry extends StatelessWidget {
           ),
           duration: const Duration(milliseconds: 150),
           height: 50,
-          child: ColoredBox(
-            color: index.isEven
-                ? Colors.transparent
-                : Colors.white.withOpacity(.025),
+          child: CustomPaint(
+            painter: _ModUpdateRowPainter(
+              service: sl.get<ModUpdateService>(),
+              filename: mod.filename,
+              striped: index.isOdd,
+            ),
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
               onEnter: (_) => onHover(true),
@@ -394,6 +394,42 @@ class ModListEntry extends StatelessWidget {
   }
 }
 
+class _ModUpdateRowPainter extends CustomPainter {
+  _ModUpdateRowPainter({
+    required this.service,
+    required this.filename,
+    required this.striped,
+  }) : super(repaint: service);
+
+  final ModUpdateService service;
+  final String filename;
+  final bool striped;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (striped) {
+      canvas.drawRect(
+        Offset.zero & size,
+        Paint()..color = Colors.white.withValues(alpha: .025),
+      );
+    }
+    if (!service.hasUpdate(filename)) return;
+    canvas
+      ..drawRect(
+        Offset.zero & size,
+        Paint()..color = kDefaultActiveColor.withValues(alpha: .12),
+      )
+      ..drawRect(
+        Rect.fromLTWH(0, 0, 3, size.height),
+        Paint()..color = kDefaultActiveColor,
+      );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ModUpdateRowPainter oldDelegate) =>
+      filename != oldDelegate.filename || striped != oldDelegate.striped;
+}
+
 class Selector extends StatelessWidget {
   const Selector({
     required this.selected,
@@ -465,27 +501,47 @@ class _UpdateBadge extends StatelessWidget {
         final update = service.updateFor(filename);
         if (update == null) return const SizedBox.shrink();
 
-        final premium =
-            sl.get<NexusModsService>().nexusUser?.isPremium ?? false;
-
         return Padding(
-          padding: const EdgeInsets.only(left: 8),
+          padding: const EdgeInsets.only(left: 6),
           child: Tooltip(
-            message: premium
-                ? 'Nexus has ${update.version}, click to download'
-                : 'Nexus has ${update.version}, click to open the mod page',
+            message: 'Nexus has ${update.version}, click to download',
             child: GestureDetector(
-              onTap: () => _fetch(update, premium),
+              onTap: () => _fetchModUpdate(filename, update),
               child: MouseRegion(
                 cursor: SystemMouseCursors.click,
-                child: Text(
-                  'UPDATE',
-                  style: TextStyle(
-                    fontFamily: FontFamily.battlefrontUI,
-                    color: kDefaultActiveColor,
-                    height: 1,
-                    fontSize: 13,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '→ ${update.version}',
+                      style: const TextStyle(
+                        fontFamily: FontFamily.battlefrontUI,
+                        color: kDefaultActiveColor,
+                        height: 1,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: kDefaultActiveColor),
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                      child: const Text(
+                        'UPDATE AVAILABLE',
+                        style: TextStyle(
+                          fontFamily: FontFamily.battlefrontUI,
+                          color: kDefaultActiveColor,
+                          height: 1,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -494,29 +550,36 @@ class _UpdateBadge extends StatelessWidget {
       },
     );
   }
+}
 
-  Future<void> _fetch(ModUpdate update, bool premium) async {
-    if (!premium) {
-      await launchUrlString(update.nexusUrl);
-      return;
-    }
-
-    try {
-      await sl.get<DownloadOrchestrator>().enqueueDownload(
-        DownloadRequest(
-          link: update.downloadUrl,
-          displayName: update.name,
-        ),
-      );
-      NotificationService.showNotification(
-        message: 'Downloading ${update.name}',
-        severity: InfoBarSeverity.info,
-      );
-    } on Object catch (e) {
-      NotificationService.showNotification(
-        message: 'Could not start the download: $e',
-        severity: InfoBarSeverity.error,
-      );
-    }
+Future<void> _fetchModUpdate(
+  String filename,
+  ModUpdate update,
+) async {
+  try {
+    final source = filename.replaceAll(r'\', '/').split('/').first;
+    final queued = await sl.get<DownloadOrchestrator>().enqueueDownload(
+      DownloadRequest(
+        link: update.downloadUrl,
+        displayName: update.name,
+        metadata: {
+          'type': 'mod-update',
+          'source': source,
+          'modId': update.modId,
+          'fileId': update.fileId,
+          'uploaded': update.uploadedTimestamp,
+        },
+      ),
+    );
+    if (!queued) return;
+    NotificationService.showNotification(
+      message: 'Downloading ${update.name}',
+      severity: InfoBarSeverity.info,
+    );
+  } on Object catch (e) {
+    NotificationService.showNotification(
+      message: 'Could not start the download: $e',
+      severity: InfoBarSeverity.error,
+    );
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui';
@@ -200,7 +201,9 @@ class DownloadOrchestrator with ChangeNotifier {
       final useIncrementalUpdate =
           Preferences.general.incrementalDownloadsEnabled;
 
-      if (useIncrementalUpdate && isZipFile) {
+      if (useIncrementalUpdate &&
+          isZipFile &&
+          request.metadata?['type'] != 'mod-update') {
         final updater = IncrementalUpdater();
         final isEligible = await updater.checkEligibility(resolved.url);
         if (isEligible) {
@@ -495,6 +498,10 @@ class DownloadOrchestrator with ChangeNotifier {
   String _encodeMetadata(Map<String, dynamic>? metadata) {
     if (metadata == null || metadata.isEmpty) {
       return '';
+    }
+
+    if (metadata['type'] == 'mod-update') {
+      return jsonEncode(metadata);
     }
 
     try {

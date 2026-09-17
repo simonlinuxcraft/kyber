@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
+import 'package:nexus_bridge/nexus_bridge.dart';
 
 /// The update check hinges on reading the Nexus mod id and upload time back
 /// out of the folder name a download left behind. Names below are real ones
@@ -32,6 +33,63 @@ void main() {
       )?.modId,
       1028,
     );
+  });
+
+  test('reads the current Nexus download folder format', () {
+    final ref = ModUpdateService.referenceFor(
+      'The Clone Wars R2D2 14257 1 2026-07-10T00-26Z 6bXLeGvIi/a.fbmod',
+    );
+    expect(ref?.modId, 14257);
+    expect(ref?.uploaded, isNull);
+    expect(ref?.uploadedMinute, DateTime.utc(2026, 7, 10, 0, 26));
+  });
+
+  test('follows Nexus replacements to the newest file', () {
+    FileElement file(int id, int uploaded) => FileElement(
+      id: [id],
+      uid: id,
+      fileId: id,
+      name: 'File $id',
+      version: '$id',
+      categoryId: 1,
+      categoryName: CategoryName.MAIN,
+      isPrimary: true,
+      size: 1,
+      fileName: 'file-$id.zip',
+      uploadedTimestamp: uploaded,
+      uploadedTime: DateTime.fromMillisecondsSinceEpoch(uploaded * 1000),
+      modVersion: '$id',
+      externalVirusScanUrl: null,
+      description: '',
+      sizeKb: 1,
+      sizeInBytes: 1,
+      changelogHtml: null,
+      contentPreviewLink: '',
+    );
+
+    final response = NexusModFile(
+      files: [file(10, 1000), file(11, 1100), file(12, 1200)],
+      fileUpdates: [
+        FileUpdate(
+          oldFileId: 10,
+          newFileId: 11,
+          oldFileName: 'file-10.zip',
+          newFileName: 'file-11.zip',
+          uploadedTimestamp: 1100,
+          uploadedTime: DateTime.fromMillisecondsSinceEpoch(1100000),
+        ),
+        FileUpdate(
+          oldFileId: 11,
+          newFileId: 12,
+          oldFileName: 'file-11.zip',
+          newFileName: 'file-12.zip',
+          uploadedTimestamp: 1200,
+          uploadedTime: DateTime.fromMillisecondsSinceEpoch(1200000),
+        ),
+      ],
+    );
+
+    expect(ModUpdateService.successorOf(response, 1000)?.fileId, 12);
   });
 
   test('gives up on folders without a Nexus reference', () {

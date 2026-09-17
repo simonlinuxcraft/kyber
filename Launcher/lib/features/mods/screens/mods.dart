@@ -656,8 +656,7 @@ class _TabSelector extends StatelessWidget {
   }
 }
 
-/// Asks Nexus which installed mods have a newer file. One request per mod,
-/// so this stays on a button instead of running by itself.
+/// Asks Nexus which identifiable installed downloads have a newer file.
 class _ModUpdateButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -679,11 +678,41 @@ class _ModUpdateButton extends StatelessWidget {
                   child: ProgressRing(strokeWidth: 2),
                 )
               else
-                Icon(
-                  mt.Icons.sync,
-                  color: service.count > 0
-                      ? kDefaultActiveColor
-                      : Colors.white,
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      mt.Icons.sync,
+                      color: service.count > 0
+                          ? kDefaultActiveColor
+                          : Colors.white,
+                    ),
+                    if (service.count > 0)
+                      Positioned(
+                        top: -7,
+                        right: -8,
+                        child: Container(
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.symmetric(horizontal: 3),
+                          decoration: const BoxDecoration(
+                            color: kDefaultActiveColor,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            '${service.count}',
+                            style: const TextStyle(
+                              color: Colors.black,
+                              fontSize: 10,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
             ],
           ),
@@ -714,12 +743,11 @@ class _ModUpdateButton extends StatelessWidget {
     final String message;
     final InfoBarSeverity severity;
     if (service.count == 0) {
-      message = 'No mod updates found$skipped';
+      final checked = service.checkedCount - failed;
+      message = 'No updates found for ${_modCount(checked)}$skipped';
       severity = failed > 0 ? InfoBarSeverity.warning : InfoBarSeverity.success;
     } else {
-      message =
-          '${_modCount(service.count)} '
-          'with a newer version on Nexus$skipped';
+      message = '${_updateCount(service.count)} found$skipped';
       severity = InfoBarSeverity.warning;
     }
 
@@ -731,6 +759,7 @@ class _ModUpdateButton extends StatelessWidget {
 }
 
 String _modCount(int n) => n == 1 ? '1 mod' : '$n mods';
+String _updateCount(int n) => n == 1 ? '1 mod update' : '$n mod updates';
 
 /// Opens the Better Sabers manager for the whole mod list, without going
 /// through a collection first. Only shown when the plugin is installed.

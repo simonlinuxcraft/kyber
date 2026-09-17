@@ -74,6 +74,8 @@ set(_CLI_PAYLOAD "${_KYBER_REPO_ROOT}/CLI/cli_payload")
 set(_MAXIMA_BOOTSTRAP_BIN
   "${_KYBER_REPO_ROOT}/ThirdParty/Maxima/target/x86_64-unknown-linux-gnu/release/maxima-bootstrap")
 
+find_program(STRIP_EXECUTABLE strip)
+
 install(CODE "
   set(_cli_dst \"${CMAKE_INSTALL_PREFIX}/cli\")
   file(MAKE_DIRECTORY \"\${_cli_dst}/bin\")
@@ -87,6 +89,21 @@ install(CODE "
     file(INSTALL
       \"${_CLI_BUILD_BUNDLE}/lib/librust_lib.so\"
       DESTINATION \"\${_cli_dst}\")
+
+    # MAXIMA-LINUX-PORT-MOD: since Dart 3.14 the compiled code lives in a
+    # separate library that kyber_cli loads from ../lib next to itself. Without
+    # it the binary falls back to a bare Dart VM and exits, which is what the
+    # recovery dialog's CLI path has been running into.
+    file(INSTALL
+      \"${_CLI_BUILD_BUNDLE}/lib/libdartaotkyber_cli.so\"
+      DESTINATION \"${INSTALL_BUNDLE_LIB_DIR}\")
+
+    # The same SDK change also stopped stripping the binary, which put 55 MB of
+    # unused symbols into every artifact.
+    if(EXISTS \"${STRIP_EXECUTABLE}\")
+      execute_process(COMMAND \"${STRIP_EXECUTABLE}\" --strip-unneeded
+        \"\${_cli_dst}/kyber_cli\")
+    endif()
   else()
     message(WARNING
       \"kyber_cli not found at ${_CLI_BUILD_BUNDLE}/bin/kyber_cli; \"

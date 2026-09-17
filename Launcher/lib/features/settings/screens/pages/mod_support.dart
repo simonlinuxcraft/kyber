@@ -94,7 +94,7 @@ class _ModSupportState extends State<ModSupport> {
               if (Platform.isLinux &&
                   (Platform.environment['WAYLAND_DISPLAY']?.isNotEmpty ?? false))
                 KyberTableItem.switchButton(
-                  title: 'Native Wayland (Experimental, restart to apply)',
+                  title: 'Native Wayland (restart to apply)',
                   value: Preferences.general.nativeWayland,
                   onChange: (bool value) {
                     Preferences.general.nativeWayland = value;

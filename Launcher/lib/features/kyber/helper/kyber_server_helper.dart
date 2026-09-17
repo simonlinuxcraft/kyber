@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -109,6 +111,33 @@ class KyberServerHelper {
     );
 
     try {
+      // A running DLL cannot consume a replacement token. Stop before
+      // CreateJoinToken invalidates the token it already holds.
+      if (sl.isRegistered<MaximaGameInstance>()) {
+        final instance = sl.get<MaximaGameInstance>();
+
+        // Probe first so the stale-instance cleanup below keeps working: if the
+        // port refuses, BF2 is already gone and the unavailable branch clears
+        // the dangling MaximaGameInstance. A game that is busy loading answers
+        // late or not at all, which still means it is running.
+        try {
+          await instance.clientService.client
+              .getVoipSettings(Empty())
+              .timeout(const Duration(seconds: 5));
+        } on TimeoutException {
+          _logger.info('Game did not answer the probe in time, assuming alive');
+        }
+
+        _logger.info(
+          'Join needs a game restart, the DLL still holds the startup token',
+        );
+        NotificationService.warning(
+          title: 'Restart required',
+          message: 'Close Battlefront II, then press Play to join this server.',
+        );
+        return;
+      }
+
       final service = sl.get<KyberGRPCService>();
       final joinToken = await service.clientServerClient.createJoinToken(
         .new(
@@ -126,23 +155,39 @@ class KyberServerHelper {
         joinToken: joinToken.token,
       );
 
-      if (!sl.isRegistered<MaximaGameInstance>()) {
-        await showKyberDialog(
-          context: navigatorKey.currentContext!,
-          builder: (_) => MaximaStartGameDialog(
-            mods: tmpCollection.getLocalMods().whereType<FrostyMod>().toList(),
-            initializeRequest: InitializeRequest(
-              joinServer: joinRequest,
-              modData: tmpCollection.getInterfaceData(),
-            ),
+      // MAXIMA-LINUX-PORT-MOD 2026-08-21: refresh only after 8 of the 15
+      // minutes. CreateJoinToken drops all tokens before its capacity check,
+      // and the game may use the token up to 300s after handover. Wall clock
+      // and Stopwatch fail differently (NTP step, suspend), so take the larger.
+      final tokenIssuedAt = DateTime.now();
+      final sinceIssued = Stopwatch()..start();
+      Future<String?> refreshJoinToken() async {
+        final wall = DateTime.now().difference(tokenIssuedAt);
+        final elapsed = wall > sinceIssued.elapsed ? wall : sinceIssued.elapsed;
+        if (elapsed < const Duration(minutes: 8)) {
+          return null;
+        }
+        _logger.info('Join token is close to expiry, requesting a fresh one');
+        final fresh = await service.clientServerClient.createJoinToken(
+          .new(
+            server: server.id,
+            password: password,
           ),
         );
-      } else {
-        final instance = sl.get<MaximaGameInstance>();
-        await instance.clientService.client.joinServer(
-          joinRequest,
-        );
+        return fresh.token;
       }
+
+      await showKyberDialog(
+        context: navigatorKey.currentContext!,
+        builder: (_) => MaximaStartGameDialog(
+          mods: tmpCollection.getLocalMods().whereType<FrostyMod>().toList(),
+          initializeRequest: InitializeRequest(
+            joinServer: joinRequest,
+            modData: tmpCollection.getInterfaceData(),
+          ),
+          refreshJoinToken: refreshJoinToken,
+        ),
+      );
     } on GrpcError catch (e) {
       // MAXIMA-LINUX-PORT-MOD 2026-08-15: a full server is the server answering
       // normally, not a failure of ours. Logging it at severe put four of these
@@ -175,8 +220,7 @@ class KyberServerHelper {
           );
         }
         NotificationService.error(
-          message:
-              'Game session was lost. Please start the game again.',
+          message: 'Game session was lost. Please start the game again.',
         );
         return;
       }

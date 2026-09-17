@@ -131,12 +131,49 @@ class MaximaHelper {
     );
   }
 
+  // MAXIMA-LINUX-PORT-MOD 2026-08-21: join tokens expire 15 minutes after Join,
+  // and a Proton download plus cold start can use that up. A failed refresh
+  // aborts, the server may already have dropped the old token.
+  static Future<InitializeRequest?> withLiveJoinToken(
+    InitializeRequest? request,
+    Future<String?> Function()? refreshJoinToken,
+  ) async {
+    if (request == null || !request.hasJoinServer()) {
+      return request;
+    }
+
+    String? fresh;
+    try {
+      fresh = await refreshJoinToken?.call();
+    } on Object catch (e, stackTrace) {
+      _logger.severe(
+        'Join token refresh failed, aborting launch',
+        e,
+        stackTrace,
+      );
+      Error.throwWithStackTrace(
+        JoinTokenRefreshException(e.toString()),
+        stackTrace,
+      );
+    }
+
+    if (fresh == null) {
+      return request;
+    }
+    if (fresh.isEmpty) {
+      throw const JoinTokenRefreshException('Server returned an empty token');
+    }
+
+    return request.deepCopy()..joinServer.joinToken = fresh;
+  }
+
   static Future<MaximaGameInstance> startGame({
     InitializeRequest? initializeRequest,
     String? gameSlug,
     String? gamePath,
     String? gameDataPath,
     List<FrostyMod>? mods,
+    Future<String?> Function()? refreshJoinToken,
   }) async {
     initializeRequest ??= InitializeRequest();
 
@@ -246,8 +283,7 @@ class MaximaHelper {
     // opens its LSX connection, so a game that starts but never connects
     // leaves this future pending and the dialog spinning with no log line.
     // 300s mirrors GRACE in maxima-lib launch.rs (cold Deck prefix).
-    // ponytail: a first-run GE-Proton download shares this window and can trip
-    // the timeout. Gate on get_proton_download_progress if that shows up.
+    // A first-run GE-Proton download counts against this timeout as well.
     final gamePID = await maxima
         .startGame(
           gameSlug: gameSlug ?? 'star-wars-battlefront-2',
@@ -311,8 +347,8 @@ class MaximaHelper {
       // Already a Wine drive-letter path? leave it alone.
       if (!(orig.length >= 2 && orig[1] == ':')) {
         final normalised = orig.replaceAll('/', r'\');
-        initializeRequest.modData.basePath = 'Z:' +
-            (normalised.startsWith(r'\') ? normalised : '\\$normalised');
+        initializeRequest.modData.basePath =
+            'Z:' + (normalised.startsWith(r'\') ? normalised : '\\$normalised');
         _logger.info(
           'Converted ModData.basePath: $orig → '
           '${initializeRequest.modData.basePath}',
@@ -321,7 +357,12 @@ class MaximaHelper {
     }
 
     try {
-      sl.get<KyberGRPCServer>().setInitializeRequest(initializeRequest);
+      // Refresh at the last moment before the DLL fetches Initialize(). Keep it
+      // inside this block so a failed refresh also stops the running game.
+      final liveRequest =
+          await withLiveJoinToken(initializeRequest, refreshJoinToken) ??
+          initializeRequest;
+      sl.get<KyberGRPCServer>().setInitializeRequest(liveRequest);
       await maxima
           .lsxGetEventStream(pid: gamePID, isStartup: true)
           .firstWhere((e) => e == 'RequestLicense');
@@ -379,17 +420,25 @@ class MaximaHelper {
     final moduleDir = FileHelper.getModuleDirectory().path;
 
     final tmpFile = File(
-      p.join(Directory.systemTemp.path, 'kyber_init_${DateTime.now().millisecondsSinceEpoch}.json'),
+      p.join(
+        Directory.systemTemp.path,
+        'kyber_init_${DateTime.now().millisecondsSinceEpoch}.json',
+      ),
     );
     await tmpFile.writeAsString(jsonEncode(initializeRequest.toProto3Json()));
 
     final interfacePort = await KyberNetworkHelper.findAvailablePort();
     final kyberService = sl.get<KyberGRPCService>();
     final kToken = await kyberService.getAuthToken(await maxima.getAuthToken());
-    final moduleVersion = (await VersionModule.module.getCurrentVersion()) ?? '';
+    final moduleVersion =
+        (await VersionModule.module.getCurrentVersion()) ?? '';
 
     final existingLd = Platform.environment['LD_LIBRARY_PATH'] ?? '';
-    final ldLibraryPath = [cliDir, libDir, if (existingLd.isNotEmpty) existingLd].join(':');
+    final ldLibraryPath = [
+      cliDir,
+      libDir,
+      if (existingLd.isNotEmpty) existingLd,
+    ].join(':');
     final existingPath = Platform.environment['PATH'] ?? '';
 
     final env = <String, String>{
@@ -413,9 +462,11 @@ class MaximaHelper {
 
     final args = [
       'start_game',
-      '--init-request-file', tmpFile.path,
+      '--init-request-file',
+      tmpFile.path,
       '--skip-updates',
-      '--module-path', moduleDir,
+      '--module-path',
+      moduleDir,
     ];
     if (gamePath != null) args.addAll(['--game-path', gamePath]);
 
@@ -438,29 +489,35 @@ class MaximaHelper {
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen(
-      (line) {
-        _logger.info('[kyber_cli] $line');
-        final pidMatch = RegExp(r'PID:\s*(\d+)').firstMatch(line);
-        if (pidMatch != null) {
-          gamePid = int.tryParse(pidMatch.group(1)!);
-        }
-        if (line.contains('Kyber started') && gamePid != null && !completer.isCompleted) {
-          completer.complete(gamePid!);
-        }
-      },
-      onDone: () {
-        if (!completer.isCompleted) {
-          completer.completeError(Exception('kyber_cli exited before game started'));
-        }
-      },
-      onError: (Object e) {
-        if (!completer.isCompleted) completer.completeError(e);
-      },
-    );
+          (line) {
+            _logger.info('[kyber_cli] $line');
+            final pidMatch = RegExp(r'PID:\s*(\d+)').firstMatch(line);
+            if (pidMatch != null) {
+              gamePid = int.tryParse(pidMatch.group(1)!);
+            }
+            if (line.contains('Kyber started') &&
+                gamePid != null &&
+                !completer.isCompleted) {
+              completer.complete(gamePid!);
+            }
+          },
+          onDone: () {
+            if (!completer.isCompleted) {
+              completer.completeError(
+                Exception('kyber_cli exited before game started'),
+              );
+            }
+          },
+          onError: (Object e) {
+            if (!completer.isCompleted) completer.completeError(e);
+          },
+        );
 
     try {
       final pid = await completer.future.timeout(const Duration(seconds: 180));
-      try { tmpFile.deleteSync(); } catch (_) {}
+      try {
+        tmpFile.deleteSync();
+      } catch (_) {}
 
       final instance = MaximaGameInstance(
         pid: pid,
@@ -482,11 +539,12 @@ class MaximaHelper {
 
       return instance;
     } catch (e) {
-      try { tmpFile.deleteSync(); } catch (_) {}
+      try {
+        tmpFile.deleteSync();
+      } catch (_) {}
       rethrow;
     }
   }
-
 }
 
 class InjectHandshakeTimeoutException implements Exception {
@@ -499,4 +557,11 @@ class GamePidNotFoundException implements Exception {
   const GamePidNotFoundException();
   @override
   String toString() => 'Failed to find PID of the game process';
+}
+
+class JoinTokenRefreshException implements Exception {
+  const JoinTokenRefreshException(this.reason);
+  final String reason;
+  @override
+  String toString() => 'Failed to refresh the join token: $reason';
 }

@@ -30,11 +30,16 @@ class MaximaStartGameDialog extends StatefulWidget {
     this.gameDataDir,
     this.initializeRequest,
     this.mods,
+    this.refreshJoinToken,
   });
 
   final String? gameDataDir;
   final List<FrostyMod>? mods;
   final InitializeRequest? initializeRequest;
+
+  /// Returns a fresh join token when the current one is close to its 15 minute
+  /// expiry, or null when it is still good. Only set for joins, never hosting.
+  final Future<String?> Function()? refreshJoinToken;
 
   @override
   State<MaximaStartGameDialog> createState() => _MaximaStartGameDialogState();
@@ -129,10 +134,12 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
       }, cancelOnError: true);
 
       await checkService();
+      // startGame refreshes the join token right before the DLL reads it.
       await MaximaHelper.startGame(
             gameDataPath: widget.gameDataDir,
             initializeRequest: widget.initializeRequest,
             mods: widget.mods,
+            refreshJoinToken: widget.refreshJoinToken,
           )
           .then((value) async {
             // Proton download (if any) is done once start_game resolves.
@@ -187,6 +194,7 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                   gameDataPath: widget.gameDataDir,
                   mods: widget.mods,
                   errorMessage: error.toString(),
+                  refreshJoinToken: widget.refreshJoinToken,
                 ),
               );
               return;
@@ -234,6 +242,7 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                     gameDataPath: widget.gameDataDir,
                     mods: widget.mods,
                     errorMessage: error.message,
+                    refreshJoinToken: widget.refreshJoinToken,
                   ),
                 );
                 return;

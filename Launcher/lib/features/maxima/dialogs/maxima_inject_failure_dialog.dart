@@ -18,12 +18,17 @@ class MaximaInjectFailureDialog extends StatefulWidget {
     this.gameDataPath,
     this.mods,
     required this.errorMessage,
+    this.refreshJoinToken,
   });
 
   final InitializeRequest? initializeRequest;
   final String? gameDataPath;
   final List<FrostyMod>? mods;
   final String errorMessage;
+
+  /// Returns a fresh join token when the current one is close to its 15 minute
+  /// expiry, or null when it is still good. Only set for joins, never hosting.
+  final Future<String?> Function()? refreshJoinToken;
 
   @override
   State<MaximaInjectFailureDialog> createState() =>
@@ -36,6 +41,14 @@ class _MaximaInjectFailureDialogState extends State<MaximaInjectFailureDialog> {
   bool _busy = false;
   String? _statusLine;
 
+  /// CLI path only. FFI refreshes inside startGame, the CLI gets the request
+  /// as a file up front.
+  Future<InitializeRequest?> _requestWithLiveToken() =>
+      MaximaHelper.withLiveJoinToken(
+        widget.initializeRequest,
+        widget.refreshJoinToken,
+      );
+
   Future<void> _retryFfi() async {
     setState(() {
       _busy = true;
@@ -47,6 +60,7 @@ class _MaximaInjectFailureDialogState extends State<MaximaInjectFailureDialog> {
         initializeRequest: widget.initializeRequest,
         gameDataPath: widget.gameDataPath,
         mods: widget.mods,
+        refreshJoinToken: widget.refreshJoinToken,
       );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -76,7 +90,7 @@ class _MaximaInjectFailureDialogState extends State<MaximaInjectFailureDialog> {
 
     try {
       await MaximaHelper.startGameViaCli(
-        initializeRequest: widget.initializeRequest!,
+        initializeRequest: (await _requestWithLiveToken())!,
         gamePath: widget.gameDataPath,
         mods: widget.mods,
       );
@@ -158,9 +172,7 @@ class _MaximaInjectFailureDialogState extends State<MaximaInjectFailureDialog> {
                     style: TextStyle(
                       fontFamily: FontFamily.battlefrontUI,
                       fontSize: 14,
-                      color: _busy
-                          ? kWhiteColor
-                          : const Color(0xFFFFB347),
+                      color: _busy ? kWhiteColor : const Color(0xFFFFB347),
                     ),
                   ),
                 ),

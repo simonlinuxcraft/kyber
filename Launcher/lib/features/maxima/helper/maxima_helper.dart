@@ -245,6 +245,12 @@ class MaximaHelper {
         ProcessEnv.delete('KYBER_ENABLE_HOST_NAMESPACE');
       }
 
+      // MAXIMA-LINUX-PORT-MOD 2026-09-17: the AppImage sets
+      // __GL_MaxFramesAllowed=1 for the launcher window, and the NVIDIA driver
+      // applies it to the game too, which measurably costs frames. Our own
+      // context already exists, so dropping it here only affects the game.
+      ProcessEnv.delete('__GL_MaxFramesAllowed');
+
       // MAXIMA-LINUX-PORT-MOD 2026-08-15: tell pressure-vessel which host
       // directories the game has to be able to see. The Steam runtime container
       // only exposes a fixed set of locations, roughly $HOME and the Steam

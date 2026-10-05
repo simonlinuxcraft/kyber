@@ -56,8 +56,10 @@ class _MaximaLoginState extends State<MaximaLogin> {
   // after a short delay so the brief startup token re-validation (which also
   // sits in the `loading` state) does not flash the paste UI; on Steam Deck it
   // is expanded immediately. A real browser login stays in `loading` long
-  // enough for the timer to fire.
+  // enough for the timer to fire. A login started from this screen shows it
+  // at once and expanded.
   bool _showPasteHelp = false;
+  bool _userStartedLogin = false;
   Timer? _pasteHelpTimer;
 
   @override
@@ -79,6 +81,12 @@ class _MaximaLoginState extends State<MaximaLogin> {
 
   void _startPasteHelpTimer() {
     if (!Platform.isLinux) return;
+    if (_userStartedLogin) {
+      _pasteHelpTimer?.cancel();
+      _pasteHelpTimer = null;
+      if (!_showPasteHelp && mounted) setState(() => _showPasteHelp = true);
+      return;
+    }
     _pasteHelpTimer ??= Timer(const Duration(seconds: 6), () {
       if (mounted) setState(() => _showPasteHelp = true);
     });
@@ -94,6 +102,10 @@ class _MaximaLoginState extends State<MaximaLogin> {
     if (state.status == MaximaStatus.loading) {
       _startPasteHelpTimer();
     } else {
+      // States emitted by init() before `loading` must not clear the flag.
+      if (_showPasteHelp || state.status == MaximaStatus.error) {
+        _userStartedLogin = false;
+      }
       _resetPasteHelp();
     }
   }
@@ -183,7 +195,9 @@ class _MaximaLoginState extends State<MaximaLogin> {
           // on _showPasteHelp so it only appears once a login has been waiting a
           // few seconds, not during the brief startup token re-validation.
           if (Platform.isLinux && _showPasteHelp)
-            _ManualCodeEntry(initiallyExpanded: _kIsSteamDeck),
+            _ManualCodeEntry(
+              initiallyExpanded: _kIsSteamDeck || _userStartedLogin,
+            ),
         ],
       ),
       _ => _LoginIntro(onLogin: () => _requestLogin(context)),
@@ -221,6 +235,7 @@ class _MaximaLoginState extends State<MaximaLogin> {
   }
 
   Future<void> _requestLogin(BuildContext context) {
+    _userStartedLogin = true;
     return context.read<MaximaCubit>().requestLogin().onError((
       error,
       stackTrace,

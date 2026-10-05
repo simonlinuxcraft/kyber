@@ -40,8 +40,8 @@ class ProtocolHelper {
     await protocolHandler.register('nxm');
 
     // The protocol_handler plugin has no Linux backend (only
-    // Android/iOS/macOS/Windows), so register('nxm') above is a no-op
-    // there. We register the scheme ourselves via xdg-mime + a small
+    // Android/iOS/macOS/Windows), so both register() calls above are no-ops
+    // there. We register the schemes ourselves via xdg-mime + a small
     // bash bridge that drops the URL into a per-user response file.
     if (Platform.isLinux) {
       await _registerLinuxNxmHandler();
@@ -402,12 +402,12 @@ class ProtocolHelper {
 [Desktop Entry]
 Type=Application
 Name=Kyber NXM Handler
-Comment=Receives nxm:// links from Nexus Mods and forwards them to the Kyber launcher.
+Comment=Receives nxm:// and kl:// links and forwards them to the Kyber launcher.
 Exec=$handlerScript %u
 NoDisplay=true
 Terminal=false
 StartupNotify=false
-MimeType=x-scheme-handler/nxm;
+MimeType=x-scheme-handler/nxm;x-scheme-handler/${Strings.protocolName};
 ''');
 
       // Best-effort registration. Each step is independent - if one
@@ -420,6 +420,7 @@ MimeType=x-scheme-handler/nxm;
           'default',
           _linuxDesktopFileBaseName,
           'x-scheme-handler/nxm',
+          'x-scheme-handler/${Strings.protocolName}',
         ],
       ]) {
         try {
@@ -494,7 +495,7 @@ MimeType=x-scheme-handler/nxm;
   }
 
   static Future<void> _dispatchLinuxNxmUrl(String url) async {
-    Logger.root.info('Received nxm:// via Linux bridge: $url');
+    Logger.root.info('Received $url via Linux bridge');
     try {
       await windowManager.show();
       await windowManager.focus();
@@ -509,7 +510,7 @@ MimeType=x-scheme-handler/nxm;
     // browser-initiated nxm:// click still works when the launcher is
     // sitting idle.
     final pending = _pendingNxmCompleter;
-    if (pending != null && !pending.isCompleted) {
+    if (pending != null && !pending.isCompleted && url.startsWith('nxm:')) {
       _pendingNxmCompleter = null;
       pending.complete(url);
       return;

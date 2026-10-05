@@ -82,8 +82,6 @@ class _MaximaLoginState extends State<MaximaLogin> {
   void _startPasteHelpTimer() {
     if (!Platform.isLinux) return;
     if (_userStartedLogin) {
-      _pasteHelpTimer?.cancel();
-      _pasteHelpTimer = null;
       if (!_showPasteHelp && mounted) setState(() => _showPasteHelp = true);
       return;
     }

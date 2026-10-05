@@ -9,6 +9,7 @@ import 'package:kyber_collection/kyber_collection.dart';
 import 'package:kyber_launcher/core/config/strings.dart';
 import 'package:kyber_launcher/core/routing/app_router.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
+import 'package:kyber_launcher/core/services/appimage_update_service.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/download_manager/models/download_link_type.dart' as dl;
 import 'package:kyber_launcher/features/download_manager/models/download_request.dart';
@@ -358,6 +359,14 @@ class ProtocolHelper {
       join(_linuxRuntimeDir(), 'kyber', 'nxm-response');
 
   static Future<void> _registerLinuxNxmHandler() async {
+    // Packages ship their own nxm/kl handlers; ours would replace them.
+    if (AppImageUpdateService.isPackagedContext) {
+      Logger.root.info(
+        'KYBER_NO_AUTO_INSTALL set, leaving the nxm:// and kl:// handlers '
+        'to the package',
+      );
+      return;
+    }
     try {
       final exeDir = dirname(Platform.resolvedExecutable);
       final bundledScript = join(exeDir, 'cli', 'bin', 'nxm_handler.sh');

@@ -468,11 +468,11 @@ MimeType=x-scheme-handler/nxm;
       await _linuxNxmWatcher?.cancel();
       _linuxNxmWatcher = dir.watch().listen(
         (event) async {
-          if (event.path != responsePath) return;
-          if (event.type != FileSystemEvent.create &&
-              event.type != FileSystemEvent.modify) {
-            return;
-          }
+          // The handler's rename arrives as a move event from the temp file.
+          final target =
+              event is FileSystemMoveEvent ? event.destination : event.path;
+          if (target != responsePath) return;
+          if (event.type == FileSystemEvent.delete) return;
           try {
             if (!responseFile.existsSync()) return;
             final url = (await responseFile.readAsString()).trim();

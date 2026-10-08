@@ -1,3 +1,4 @@
+import 'package:desktop_webview_window/src/cookie.dart';
 import 'package:flutter/foundation.dart';
 
 /// Handle custom message from JavaScript in your app.
@@ -10,7 +11,7 @@ typedef OnHistoryChangedCallback = void Function(
 
 /// Callback when WebView start to load a URL.
 /// [url] is the URL string.
-typedef OnUrlRequestCallback = void Function(String url);
+typedef OnUrlRequestCallback = bool Function(String url);
 
 /// Callback when WebView receives a web message
 /// [message] constains the webmessage
@@ -26,7 +27,9 @@ abstract class Webview {
   ///
   /// available: macOS (10.10+)
   void registerJavaScriptMessageHandler(
-      String name, JavaScriptMessageHandler handler);
+    String name,
+    JavaScriptMessageHandler handler,
+  );
 
   /// available: macOS
   void unregisterJavaScriptMessageHandler(String name);
@@ -35,7 +38,7 @@ abstract class Webview {
   void setPromptHandler(PromptHandler? handler);
 
   /// Navigates to the given URL.
-  void launch(String url);
+  void launch(String url, {bool triggerOnUrlRequestEvent = true});
 
   /// change webview theme.
   ///
@@ -56,6 +59,15 @@ abstract class Webview {
   /// Show or hide webview window
   Future<void> setWebviewWindowVisibility(bool visible);
 
+  /// Move and Resize the webview window
+  Future<void> moveWebviewWindow(int left, int top, int width, int height);
+
+  /// Activates the webview window (giving it the focus)
+  Future<void> bringToForeground({bool maximized = false});
+
+  /// get position, extents and maximization info of the webview window
+  Future<Map<dynamic, dynamic>?> getPositionalParameters();
+
   /// Reload the current page.
   Future<void> reload();
 
@@ -68,14 +80,15 @@ abstract class Webview {
   /// Register a callback that will be invoked when the webview history changes.
   void setOnHistoryChangedCallback(OnHistoryChangedCallback? callback);
 
-  void addOnUrlRequestCallback(OnUrlRequestCallback callback);
-
-  void removeOnUrlRequestCallback(OnUrlRequestCallback callback);
+  void setOnUrlRequestCallback(OnUrlRequestCallback? callback);
 
   void addOnWebMessageReceivedCallback(OnWebMessageReceivedCallback callback);
 
   void removeOnWebMessageReceivedCallback(
-      OnWebMessageReceivedCallback callback);
+    OnWebMessageReceivedCallback callback,
+  );
+
+  void removeAllWebMessageReceivedCallback();
 
   /// Close the web view window.
   void close();
@@ -88,4 +101,6 @@ abstract class Webview {
 
   /// post a web message as JSON to the top level document in this WebView
   Future<void> postWebMessageAsJson(String webMessage);
+
+  Future<List<WebviewCookie>> getAllCookies();
 }

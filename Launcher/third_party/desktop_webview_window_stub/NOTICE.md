@@ -3,7 +3,7 @@
 This directory is a modified, no-op stub copy of the upstream Dart package
 [`desktop_webview_window`](https://github.com/MixinNetwork/flutter-plugins/tree/main/packages/desktop_webview_window),
 licensed under Apache License 2.0 (see `LICENSE` in this directory; copied
-verbatim from the upstream pub.dev release at version `0.2.3`).
+verbatim from the upstream pub.dev release at version `0.3.0`).
 
 ## Why this stub exists
 
@@ -24,7 +24,8 @@ the upstream package via a `dependency_overrides:` entry in the Launcher
 - `pubspec.yaml` keeps the upstream package name and platform declarations so
   `dependency_overrides:` resolves the substitution and the generated
   macOS/Windows plugin registrants stay identical to upstream.
-- `lib/src/webview.dart` and `lib/src/create_configuration.dart` are copied
+- `lib/src/webview.dart`, `lib/src/cookie.dart` and
+  `lib/src/create_configuration.dart` are copied
   unchanged from upstream.
 
 ## Distribution

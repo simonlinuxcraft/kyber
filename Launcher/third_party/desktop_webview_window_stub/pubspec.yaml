@@ -4,10 +4,10 @@ name: desktop_webview_window
 # (flutter_web_auth_2 runs with useWebview:false here, and nothing calls
 # WebviewWindow). Bundling webkit also breaks startup on distros without a
 # system webkit (Steam Deck/SteamOS) because webkit hardcodes its helper path.
-# Pinned to upstream 0.2.3. When bumping, resync lib/ from the new pub-cache
+# Pinned to upstream 0.3.0. When bumping, resync lib/ from the new pub-cache
 # entry but keep linux/CMakeLists.txt and the *_plugin_stub.cc as no-ops.
 description: "Linux no-op stub for desktop_webview_window (drops the webkit2gtk dependency)."
-version: 0.2.3
+version: 0.3.0
 homepage: https://github.com/MixinNetwork/flutter-plugins/tree/main/packages/desktop_webview_window
 
 environment:

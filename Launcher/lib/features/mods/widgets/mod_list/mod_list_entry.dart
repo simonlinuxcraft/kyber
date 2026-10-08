@@ -10,7 +10,7 @@ import 'package:kyber_launcher/features/download_manager/services/download_orche
 import 'package:kyber_launcher/features/frosty/widgets/mod_icon.dart';
 import 'package:kyber_launcher/features/mod_browser/widgets/mod_details/mod_images.dart';
 import 'package:kyber_launcher/features/mod_collections/dialogs/duplicated_file_dialog.dart';
-import 'package:kyber_launcher/features/mod_collections/providers/mod_collection_cubit.dart';
+import 'package:kyber_launcher/features/mod_collections/extensions/mod_collection_extension.dart';
 import 'package:kyber_launcher/features/mods/providers/collection_editor_cubit.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
 import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';

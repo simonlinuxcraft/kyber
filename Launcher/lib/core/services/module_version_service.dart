@@ -97,7 +97,7 @@ class ModuleVersionService {
   bool isStandalone() {
     // TODO: find a fix for this
     return false;
-    RegistryKey? key;
+    /* RegistryKey? key;
     try {
       key = Registry.openPath(
         RegistryHive.localMachine,
@@ -118,7 +118,7 @@ class ModuleVersionService {
       return false;
     } finally {
       key?.close();
-    }
+    }*/
   }
 
   Future<bool> checkChannel({

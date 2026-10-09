@@ -429,6 +429,14 @@ StartupNotify=false
 MimeType=x-scheme-handler/nxm;x-scheme-handler/${Strings.protocolName};
 ''');
 
+      // Older AppImage self-installs wrote a second handler, and packages
+      // never run the self-install that removes it now.
+      try {
+        await File(join(appsDir.path, 'kyber-linuxport-nxm.desktop')).delete();
+      } on FileSystemException {
+        // Not there, nothing to clean up.
+      }
+
       // Best-effort registration. Each step is independent - if one
       // tool is missing on a slim distro we still want the others to
       // run.

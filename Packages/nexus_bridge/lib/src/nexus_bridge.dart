@@ -19,6 +19,10 @@ class NexusBridge {
 
   late Dio _dio;
   late NxsApiClient apiClient;
+
+  /// Same headers and key, without the interceptors (and so the cache).
+  NxsApiClient get uncachedApiClient => NxsApiClient(Dio(_dio.options));
+
   final List<NexusCategory> categories = [
     NexusCategory(name: 'All Mods', id: ''),
     NexusCategory(name: 'Audio', id: '3'),

@@ -670,7 +670,7 @@ class _ModUpdateButton extends StatelessWidget {
           width: 45,
           child: KyberTabBar(
             selectedIndex: -1,
-            onChanged: service.isChecking ? null : (_) => _check(context),
+            onChanged: service.isChecking ? null : (_) => _check(),
             tabs: [
               if (service.isChecking)
                 const SizedBox(
@@ -722,9 +722,17 @@ class _ModUpdateButton extends StatelessWidget {
     );
   }
 
-  Future<void> _check(BuildContext context) async {
+  Future<void> _check() async {
     final service = sl.get<ModUpdateService>();
-    final mods = context.read<ModsListCubit>().state.mods;
+    if (sl.get<NexusModsService>().apiToken == null) {
+      NotificationService.showNotification(
+        message: 'Log in to NexusMods under Settings > Accounts',
+        severity: InfoBarSeverity.warning,
+      );
+      return;
+    }
+    // The visible list hides filtered mods and mods inside collections.
+    final mods = sl.get<ModService>().mods;
 
     NotificationService.showNotification(
       message: 'Checking Nexus for mod updates',
@@ -743,7 +751,12 @@ class _ModUpdateButton extends StatelessWidget {
 
     final String message;
     final InfoBarSeverity severity;
-    if (service.count == 0) {
+    if (service.checkedCount == 0) {
+      message =
+          'None of your mods can be traced to a Nexus file. Mods downloaded '
+          'through the launcher can be checked';
+      severity = InfoBarSeverity.warning;
+    } else if (service.count == 0) {
       final checked = service.checkedCount - failed;
       message = 'No updates found for ${_modCount(checked)}$skipped';
       severity = failed > 0 ? InfoBarSeverity.warning : InfoBarSeverity.success;

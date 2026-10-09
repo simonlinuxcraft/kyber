@@ -16,7 +16,7 @@ class DownloadPostProcessor {
   }) : _platformIntegration = platformIntegration;
 
   final DownloadPlatformIntegration? _platformIntegration;
-  final Logger _logger = Logger('download_post_processor');
+  static final Logger _logger = Logger('download_post_processor');
 
   Future<void> processCompletedDownload(
     TaskStatusUpdate update, {
@@ -65,6 +65,11 @@ class DownloadPostProcessor {
           severity: InfoBarSeverity.error,
         );
       }
+      await fileNexusDownload(
+        basePath: update.task.directory,
+        metadata: update.task.metaData,
+        extractedFiles: result.extractedFiles,
+      );
       _logger.info('Extraction successful');
     } catch (e, s) {
       _logger.severe('Failed to process completed download', e, s);
@@ -141,7 +146,9 @@ class DownloadPostProcessor {
       final old = Directory(oldPath);
       // An update often ships only what changed. Carry over the rest instead
       // of deleting textures and patches the new archive did not include.
+      // Old mod files stay behind: a renamed one would install both versions.
       for (final kept in old.listSync(recursive: true).whereType<File>()) {
+        if (p.extension(kept.path) == '.fbmod') continue;
         final target = p.join(
           newDir.path,
           p.relative(kept.path, from: oldPath),
@@ -153,6 +160,46 @@ class DownloadPostProcessor {
       await old.delete(recursive: true);
     } else {
       await File(oldPath).delete();
+    }
+  }
+
+  /// Moves a Nexus download into `nexus-<modId>-<fileId>`, the only place the
+  /// update check can read those ids back from. Never throws: a mod left in
+  /// the root still works, the update check just cannot see it.
+  @visibleForTesting
+  static Future<void> fileNexusDownload({
+    required String basePath,
+    required String metadata,
+    required List<String> extractedFiles,
+  }) async {
+    try {
+      if (metadata.isEmpty) return;
+      final decoded = jsonDecode(metadata);
+      if (decoded is! Map<String, dynamic> || decoded['type'] != 'nexus') {
+        return;
+      }
+      final modId = decoded['modId'];
+      final fileId = decoded['fileId'];
+      if (modId is! int || fileId is! int) return;
+
+      final files = extractedFiles
+          .map(File.new)
+          .where((file) => file.existsSync())
+          .toList();
+      if (!files.any((file) => p.extension(file.path) == '.fbmod')) return;
+
+      final dir = Directory(p.join(basePath, 'nexus-$modId-$fileId'));
+      await dir.create();
+      for (final file in files) {
+        final target = p.join(dir.path, p.basename(file.path));
+        if (File(target).existsSync()) {
+          await file.delete();
+        } else {
+          await file.rename(target);
+        }
+      }
+    } on Object catch (e, s) {
+      _logger.warning('Nexus download left in the mods folder root', e, s);
     }
   }
 }

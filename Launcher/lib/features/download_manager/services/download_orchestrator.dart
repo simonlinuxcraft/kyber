@@ -230,7 +230,9 @@ class DownloadOrchestrator with ChangeNotifier {
           priority: request.priority,
           allowPause: true,
           baseDirectory: BaseDirectory.root,
-          metaData: _encodeMetadata(request.metadata),
+          metaData: _encodeMetadata(
+            request.metadata ?? nexusMetadataFor(request.link),
+          ),
           options: TaskOptions(
             beforeTaskStart: _onBeforeStart,
             onTaskStart: _onTaskStart,
@@ -497,12 +499,34 @@ class DownloadOrchestrator with ChangeNotifier {
     );
   }
 
+  static final _nexusLink = RegExp(
+    r'^https://www\.nexusmods\.com/starwarsbattlefront22017/mods/(\d{1,9})'
+    r'\?(?:[^#]*&)?file_id=(\d{1,9})(?:&|$)',
+  );
+  static final _nxmLink = RegExp(
+    r'^nxm://starwarsbattlefront22017/mods/(\d{1,9})/files/(\d{1,9})(?:\?|$)',
+  );
+
+  /// The link is the only place that names the Nexus mod and file. Passing
+  /// them on lets the post processor file the download where the update
+  /// check can find it.
+  @visibleForTesting
+  static Map<String, dynamic>? nexusMetadataFor(String link) {
+    final match = _nexusLink.firstMatch(link) ?? _nxmLink.firstMatch(link);
+    if (match == null) return null;
+    return {
+      'type': 'nexus',
+      'modId': int.parse(match.group(1)!),
+      'fileId': int.parse(match.group(2)!),
+    };
+  }
+
   String _encodeMetadata(Map<String, dynamic>? metadata) {
     if (metadata == null || metadata.isEmpty) {
       return '';
     }
 
-    if (metadata['type'] == 'mod-update') {
+    if (metadata['type'] == 'mod-update' || metadata['type'] == 'nexus') {
       return jsonEncode(metadata);
     }
 

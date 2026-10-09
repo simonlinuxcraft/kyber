@@ -5,6 +5,7 @@ import 'package:kyber_launcher/features/nexusmods/services/nexusmods_service.dar
 import 'package:kyber_launcher/injection_container.dart';
 import 'package:logging/logging.dart';
 import 'package:nexus_bridge/nexus_bridge.dart';
+import 'package:path/path.dart' as p;
 
 /// Tells you which installed mods have a newer file on Nexus.
 ///
@@ -14,10 +15,18 @@ import 'package:nexus_bridge/nexus_bridge.dart';
 ///     Maul Shadow Lord Sabers 1.1-13865-1-1-1777560401
 ///                             ^^^^^ mod id  ^^^^^^^^^^ upload time
 ///
+/// Downloads through the launcher land in `nexus-<modId>-<fileId>`.
 /// Mods that were copied in by hand, and Frosty collections (their folder is
 /// slugified with a random suffix), have no id and are skipped.
 class ModUpdateService with ChangeNotifier {
   static const _game = 'starwarsbattlefront22017';
+
+  /// Old version, removed, archived.
+  static const _retiredCategories = {4, 6, 7};
+
+  static final _launcherFolderPattern = RegExp(
+    r'^nexus-(?:update-)?(\d{1,9})-(\d{1,9})(?:-(\d{10}))?$',
+  );
 
   /// Trailing part of a Nexus download folder: mod id, then version parts,
   /// then the upload timestamp.
@@ -25,7 +34,8 @@ class ModUpdateService with ChangeNotifier {
     r'-(\d{2,7})-[\w.]+(?:-[\w.]+)*-(\d{10})$',
   );
   static final _modernFolderPattern = RegExp(
-    r' (\d{2,7}) [^ ]+ (\d{4}-\d{2}-\d{2}T\d{2}-\d{2}Z) [A-Za-z0-9]+$',
+    r' (\d{2,7}) [^ ]+ (\d{4}-\d{2}-\d{2}T\d{2}-\d{2}Z) [A-Za-z0-9]+'
+    r'(?:-[\w.]+)*$',
   );
 
   final _logger = Logger('mod_update_service');
@@ -41,14 +51,14 @@ class ModUpdateService with ChangeNotifier {
 
   int _failed = 0;
   int _checked = 0;
-  int _updateCount = 0;
 
   /// How many mods could not be checked in the last run. Zero results plus
   /// failures is not the same as "everything is current".
   int get failedCount => _failed;
   int get checkedCount => _checked;
 
-  int get count => _updateCount;
+  /// Files of one folder share one [ModUpdate], so this counts folders.
+  int get count => _updates.values.toSet().length;
   ModUpdate? updateFor(String filename) => _updates[filename];
   bool hasUpdate(String filename) => _updates.containsKey(filename);
 
@@ -59,10 +69,8 @@ class ModUpdateService with ChangeNotifier {
     if (_checking) return;
     _checking = true;
     _updates.clear();
-    _updateCount = 0;
     notifyListeners();
 
-    final client = sl.get<NexusModsService>().nexusBridge.apiClient;
     _failed = 0;
     final groups = <ModUpdateReference, List<FrostyMod>>{};
     for (final mod in mods) {
@@ -74,6 +82,9 @@ class ModUpdateService with ChangeNotifier {
     final failedModIds = <int>{};
 
     try {
+      // The shared client answers from a cache up to four hours old, which
+      // hides exactly the upload this check is looking for.
+      final client = sl.get<NexusModsService>().nexusBridge.uncachedApiClient;
       for (final entry in groups.entries) {
         final ref = entry.key;
         if (failedModIds.contains(ref.modId)) {
@@ -85,8 +96,8 @@ class ModUpdateService with ChangeNotifier {
               responses[ref.modId] ??
               await client.getModFiles(_game, ref.modId);
           responses[ref.modId] = response;
-          final installed = _installedFileFor(response, ref);
-          if (installed == null) {
+          final (:installed, :successor) = resolve(response, ref);
+          if (installed == null && successor == null) {
             _failed++;
             _logger.warning(
               'Installed Nexus file could not be identified for mod '
@@ -94,7 +105,6 @@ class ModUpdateService with ChangeNotifier {
             );
             continue;
           }
-          final successor = _successorAfter(response, installed.fileId);
           if (successor != null) {
             final update = ModUpdate(
               modId: ref.modId,
@@ -107,7 +117,6 @@ class ModUpdateService with ChangeNotifier {
             for (final mod in entry.value) {
               _updates[mod.filename] = update;
             }
-            _updateCount++;
           }
         } on Object catch (e) {
           _failed++;
@@ -115,11 +124,15 @@ class ModUpdateService with ChangeNotifier {
           _logger.warning('Update check failed for mod ${ref.modId}: $e');
         }
       }
+    } on Object catch (e) {
+      // No Nexus session, e.g. right after logging out.
+      _failed = _checked;
+      _logger.warning('Update check could not start: $e');
     } finally {
       _checking = false;
       _lastCheck = DateTime.now();
       _logger.info(
-        'Checked $_checked identifiable downloads, $_updateCount have updates, '
+        'Checked $_checked identifiable downloads, $count have updates, '
         '$_failed failed',
       );
       notifyListeners();
@@ -130,46 +143,84 @@ class ModUpdateService with ChangeNotifier {
     _updates.clear();
     _failed = 0;
     _checked = 0;
-    _updateCount = 0;
     _lastCheck = null;
     notifyListeners();
   }
 
-  /// Follows Nexus' own replacement chain for the installed file.
+  /// Drops updates for mods that are gone, usually because the update itself
+  /// replaced them, so the badge stops counting them.
+  void forgetMissing(List<FrostyMod> installed) {
+    final filenames = installed.map((mod) => mod.filename).toSet();
+    final before = _updates.length;
+    _updates.removeWhere((filename, _) => !filenames.contains(filename));
+    if (_updates.length != before) notifyListeners();
+  }
+
+  /// Finds the installed file and the newer one to offer, if any.
   ///
   /// A mod page often holds several files that have nothing to do with each
   /// other: main file, optional extras, patches. Comparing an installed file
   /// against the newest file on the page therefore reports an update for
   /// every mod whose page saw any other file uploaded later. Nexus states
-  /// which file replaced which in `file_updates`, so walk that instead and
-  /// stay silent when the installed file cannot be identified.
+  /// which file replaced which in `file_updates`, so walk that first.
+  ///
+  /// Some authors retire the old file without linking the new one. Then,
+  /// like Vortex, take the one file still live on the page, and only if
+  /// there is exactly one.
   @visibleForTesting
-  static FileElement? successorOf(NexusModFile response, int installedUpload) {
-    final installed = response.files
-        .where((f) => f.uploadedTimestamp == installedUpload)
-        .firstOrNull;
-    if (installed == null) return null;
+  static ({FileElement? installed, FileElement? successor}) resolve(
+    NexusModFile response,
+    ModUpdateReference reference,
+  ) {
+    final installed = _installedFileFor(response, reference);
+    final installedId = installed?.fileId ?? reference.fileId;
+    var successor = installedId == null
+        ? null
+        : _successorAfter(response, installedId);
 
-    return _successorAfter(response, installed.fileId);
+    // Several files matching one upload minute is not "gone".
+    final retired = installed != null
+        ? _retiredCategories.contains(installed.categoryId)
+        : !response.files.any((file) => _matches(file, reference));
+    if (successor == null && retired) {
+      successor = response.files
+          .where((file) => !_retiredCategories.contains(file.categoryId))
+          .singleOrNull;
+    }
+
+    return (installed: installed, successor: successor);
+  }
+
+  static bool _matches(FileElement file, ModUpdateReference reference) {
+    if (reference.fileId != null) return file.fileId == reference.fileId;
+    if (reference.uploaded != null) {
+      return file.uploadedTimestamp == reference.uploaded;
+    }
+    final uploaded = file.uploadedTime.toUtc();
+    final minute = reference.uploadedMinute!;
+    return uploaded.year == minute.year &&
+        uploaded.month == minute.month &&
+        uploaded.day == minute.day &&
+        uploaded.hour == minute.hour &&
+        uploaded.minute == minute.minute;
   }
 
   static FileElement? _installedFileFor(
     NexusModFile response,
     ModUpdateReference reference,
   ) {
-    return reference.uploaded != null
-        ? response.files
-              .where((file) => file.uploadedTimestamp == reference.uploaded)
-              .firstOrNull
-        : response.files.where((file) {
-            final uploaded = file.uploadedTime.toUtc();
-            final minute = reference.uploadedMinute!;
-            return uploaded.year == minute.year &&
-                uploaded.month == minute.month &&
-                uploaded.day == minute.day &&
-                uploaded.hour == minute.hour &&
-                uploaded.minute == minute.minute;
-          }).singleOrNull;
+    final matches = response.files
+        .where((file) => _matches(file, reference))
+        .toList();
+    if (matches.length < 2) return matches.firstOrNull;
+
+    // Files uploaded in the same minute: the folder keeps the archive name.
+    return matches
+        .where(
+          (file) =>
+              p.basenameWithoutExtension(file.fileName) == reference.folder,
+        )
+        .singleOrNull;
   }
 
   static FileElement? _successorAfter(
@@ -197,10 +248,23 @@ class ModUpdateService with ChangeNotifier {
   @visibleForTesting
   static ModUpdateReference? referenceFor(String filename) {
     final folder = filename.replaceAll(r'\', '/').split('/').first;
+    final launcher = _launcherFolderPattern.firstMatch(folder);
+    if (launcher != null) {
+      return (
+        folder: folder,
+        modId: int.parse(launcher.group(1)!),
+        fileId: int.parse(launcher.group(2)!),
+        uploaded: null,
+        uploadedMinute: null,
+      );
+    }
+
     final match = _folderPattern.firstMatch(folder);
     if (match != null) {
       return (
+        folder: folder,
         modId: int.parse(match.group(1)!),
+        fileId: null,
         uploaded: int.parse(match.group(2)!),
         uploadedMinute: null,
       );
@@ -210,7 +274,9 @@ class ModUpdateService with ChangeNotifier {
     if (modern == null) return null;
     final value = modern.group(2)!;
     return (
+      folder: folder,
       modId: int.parse(modern.group(1)!),
+      fileId: null,
       uploaded: null,
       uploadedMinute: DateTime.parse(
         '${value.substring(0, 13)}:${value.substring(14, 16)}:00Z',
@@ -220,7 +286,9 @@ class ModUpdateService with ChangeNotifier {
 }
 
 typedef ModUpdateReference = ({
+  String folder,
   int modId,
+  int? fileId,
   int? uploaded,
   DateTime? uploadedMinute,
 });

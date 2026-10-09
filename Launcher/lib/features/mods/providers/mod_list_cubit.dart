@@ -5,6 +5,7 @@ import 'package:kyber_launcher/features/mods/extensions/frosty_collection_extens
 import 'package:kyber_launcher/features/mods/helper/frosty_mod_extension.dart';
 import 'package:kyber_launcher/features/mods/models/mods_filter.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
+import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
 import 'package:kyber_launcher/injection_container.dart';
 
 class ModsListCubit extends Cubit<ModsListState> {
@@ -67,6 +68,7 @@ class ModsListCubit extends Cubit<ModsListState> {
     }
 
     final all = List<FrostyMod>.of(sl<ModService>().mods);
+    sl<ModUpdateService>().forgetMissing(all);
     final filtered = _applyFilter(all, filter);
 
     emit(

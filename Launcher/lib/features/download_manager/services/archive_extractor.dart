@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:collection/collection.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';
 import 'package:kyber_collection/kyber_collection.dart';
+import 'package:kyber_launcher/core/services/libarchive_service.dart';
 import 'package:kyber_launcher/core/services/unzip_helper.dart';
 import 'package:kyber_launcher/features/download_manager/models/extraction_result.dart';
 import 'package:kyber_launcher/gen/rust/api/archive.dart' as rust_archive;
@@ -102,6 +103,8 @@ class ArchiveExtractor {
       await stream.last;
 
       await Future<void>.delayed(const Duration(milliseconds: 500));
+    } else if (Platform.isLinux) {
+      await extractWithLibarchive(filePath, tmpDir, onProgress: onProgress);
     } else {
       await Future<void>.delayed(const Duration(seconds: 1));
       await UnzipHelper.unrar(

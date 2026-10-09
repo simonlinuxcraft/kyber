@@ -408,6 +408,13 @@ class ProtocolHelper {
           Directory(join(home, '.local', 'share', 'applications'));
       await appsDir.create(recursive: true);
 
+      // The self-install puts an absolute icon in place because some icon
+      // themes don't resolve the bare name; packages ship it under that name.
+      final installedIcon = join(home, '.local', 'share', 'icons', 'hicolor',
+          '256x256', 'apps', 'kyber-linux.png');
+      final icon =
+          File(installedIcon).existsSync() ? installedIcon : 'kyber-linux';
+
       final desktopFile = File(join(appsDir.path, _linuxDesktopFileBaseName));
       await desktopFile.writeAsString('''
 [Desktop Entry]
@@ -415,6 +422,7 @@ Type=Application
 Name=Kyber NXM Handler
 Comment=Receives nxm:// and kl:// links and forwards them to the Kyber launcher.
 Exec=$handlerScript %u
+Icon=$icon
 NoDisplay=true
 Terminal=false
 StartupNotify=false

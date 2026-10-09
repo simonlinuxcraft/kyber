@@ -150,8 +150,8 @@ class NexusDownloadService {
   /// the early-return above and never reach this path. So for free
   /// accounts on Linux we mirror the kyber-bf2-linux reference build:
   ///
-  ///   1. Open the mod page in the system browser with a clear toast
-  ///      asking the user to press "Mod Manager Download".
+  ///   1. Open the mod manager download page in the system browser
+  ///      with a toast asking the user to press "Slow download".
   ///   2. Park a one-shot completer on `ProtocolHelper.awaitNextNxmUrl`.
   ///      The browser click triggers our xdg-mime handler
   ///      (nxm_handler.sh) which drops the nxm:// URL into
@@ -201,17 +201,8 @@ class NexusDownloadService {
     // race us. Browser click typically takes >1s, but better safe.
     final nxmCompleter = ProtocolHelper.awaitNextNxmUrl();
 
-    // Open the regular Nexus mod-files page - same URL pattern the
-    // working tarball build uses. The "Mod Manager Download" button
-    // is rendered conditionally by Nexus's frontend JavaScript: it
-    // only appears once the browser has a registered handler for the
-    // nxm:// scheme. Our xdg-mime registration covers the system
-    // level, but each browser additionally needs the user to confirm
-    // the handler the FIRST time a nxm:// link is clicked
-    // (security UX - Firefox/Chromium will not trust a system-level
-    // handler silently). Once accepted, the button shows up on
-    // every subsequent visit and our xdg-mime → nxm_handler.sh →
-    // inotify pipeline takes over automatically.
+    // nmm=1 is where Nexus's "Mod manager download" button leads: the
+    // page whose "Slow download" hands out the nxm:// link.
     final modSlug = modUri.pathSegments.contains('mods')
         ? modUri.pathSegments[
             modUri.pathSegments.indexOf('mods') - 1]
@@ -221,13 +212,11 @@ class NexusDownloadService {
         : '';
     final modFilesUrl =
         'https://www.nexusmods.com/$modSlug/mods/$modIdFromPath'
-        '?tab=files&file_id=$fileId';
+        '?tab=files&file_id=$fileId&nmm=1';
 
     NotificationService.showNotification(
-      message: 'Opening the mod page in your browser. Click "Mod '
-          'Manager Download" there. If the button is missing: enter '
-          '"nxm:test" in the address bar once and select "Kyber NXM '
-          'Handler" - the button will then appear on every mod page.',
+      message: 'Opening the download page in your browser. Click "Slow '
+          'download" there and open the link with "Kyber NXM Handler".',
       severity: InfoBarSeverity.info,
     );
     try {
@@ -251,7 +240,7 @@ class NexusDownloadService {
       NotificationService.error(
         message:
             'No NXM response received within 180 seconds. Please click '
-            '"Mod Manager Download" in the browser tab that opened.',
+            '"Slow download" in the browser tab that opened.',
       );
       throw Exception('No NXM response received within 180 seconds');
     } catch (e) {

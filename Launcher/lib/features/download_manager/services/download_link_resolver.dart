@@ -17,12 +17,16 @@ class ResolvedDownload {
     required this.filename,
     required this.type,
     this.size,
+    this.source,
   });
 
   final String url;
   final String filename;
   final DownloadLinkType type;
   final int? size;
+
+  /// The nxm link that decided which file this is, when the browser did.
+  final String? source;
 }
 
 class DownloadLinkResolver {
@@ -73,7 +77,7 @@ class DownloadLinkResolver {
 
   Future<ResolvedDownload> _resolveNexusLink(DownloadRequest request) async {
     try {
-      var (url, filename) = await NexusDownloadService.getNexusDownload(
+      var (url, filename, source) = await NexusDownloadService.getNexusDownload(
         request.link,
       );
 
@@ -102,6 +106,7 @@ class DownloadLinkResolver {
         filename: filename,
         type: DownloadLinkType.nexus,
         size: request.size,
+        source: source,
       );
     } on StateError catch (e) {
       // A newer nxm:// wait replaced this one (user started a second download).

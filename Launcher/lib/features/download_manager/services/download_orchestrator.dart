@@ -231,7 +231,8 @@ class DownloadOrchestrator with ChangeNotifier {
           allowPause: true,
           baseDirectory: BaseDirectory.root,
           metaData: _encodeMetadata(
-            request.metadata ?? nexusMetadataFor(request.link),
+            request.metadata ??
+                nexusMetadataFor(resolved.source ?? request.link),
           ),
           options: TaskOptions(
             beforeTaskStart: _onBeforeStart,

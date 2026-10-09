@@ -20,7 +20,9 @@ import 'package:url_launcher/url_launcher_string.dart';
 class NexusDownloadService {
   NexusDownloadService._();
 
-  static Future<(String, String)> getNexusDownload(
+  /// Returns the download url, its filename and, when the browser picked the
+  /// file, the nxm link it handed back.
+  static Future<(String, String, String?)> getNexusDownload(
     String downloadUrl, {
     int tries = 0,
   }) async {
@@ -44,7 +46,7 @@ class NexusDownloadService {
 
       final downloadLink = Uri.parse(downloadLinks.first.uri);
       final filename = downloadLink.pathSegments.last;
-      return (downloadLink.toString(), filename);
+      return (downloadLink.toString(), filename, null);
     }
 
     // Linux: bypass the HeadlessInAppWebView trick entirely. The plugin is
@@ -111,7 +113,7 @@ class NexusDownloadService {
 
       final filename = uri.split('/').last.split('?').first.replaceAll('%', '_');
 
-      return (uri, filename);
+      return (uri, filename, null);
     } on TimeoutException catch (e, s) {
       NotificationService.error(
         message:
@@ -164,7 +166,7 @@ class NexusDownloadService {
   ///      (`/games/{game}/mods/{mod}/files/{file}/download_link.json`).
   ///      Those short-lived tokens are what makes free-user downloads
   ///      work - without them the same call returns 403.
-  static Future<(String, String)> _getNexusDownloadLinux(
+  static Future<(String, String, String?)> _getNexusDownloadLinux(
     String downloadUrl, {
     int tries = 0,
   }) async {
@@ -281,7 +283,8 @@ class NexusDownloadService {
     final resolved = Uri.parse(downloadLinks.first.uri);
     final filename = resolved.pathSegments.last;
     logger.info('NXM download link resolved: $resolved');
-    return (resolved.toString(), filename);
+    // The user may pick another file in the browser than the one requested.
+    return (resolved.toString(), filename, nxmUrl);
   }
 
 }

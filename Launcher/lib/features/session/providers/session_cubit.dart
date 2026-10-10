@@ -435,6 +435,16 @@ class SessionCubit extends Cubit<SessionState> {
     if (info == null) return;
 
     final instance = sl.maybeGet<MaximaGameInstance>();
+    // On Linux a running game cannot switch servers, and instance.pid is the
+    // Wine PID, so killPid would hit an unrelated Linux process.
+    if (instance != null && Platform.isLinux) {
+      NotificationService.warning(
+        title: 'Restart required',
+        message: 'Close Battlefront II, then join again from the party window.',
+      );
+      return;
+    }
+
     if (instance != null) {
       final clientMods = instance.gameplayMods
           .map((e) => e.toCollectionMod())

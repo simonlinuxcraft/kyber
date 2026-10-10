@@ -8,8 +8,8 @@ import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
 
-// libarchive (BSD licence) reads RAR, RAR5 and 7z. It is loaded from the host
-// so the AppImage does not ship it together with its crypto dependencies.
+// libarchive (BSD licence) reads RAR, RAR5 and 7z. The AppImage already ships
+// it for libmpv, the other packages use the system copy.
 const _libName = 'libarchive.so.13';
 const int _blockSize = 1 << 20;
 const _archiveOk = 0;

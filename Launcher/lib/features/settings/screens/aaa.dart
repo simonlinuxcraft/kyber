@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber/kyber.dart';
 import 'package:kyber_launcher/core/config/colors.dart';
+import 'package:kyber_launcher/core/services/gstreamer_check.dart';
 import 'package:kyber_launcher/gen/assets.gen.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/injection_container.dart';
@@ -89,7 +90,7 @@ class Credits extends StatefulWidget {
 
 class _CreditsState extends State<Credits> {
   PatronListResponse? patrons;
-  final player = AudioPlayer();
+  final AudioPlayer? player = canPlayAudio ? AudioPlayer() : null;
   final listController = ListController();
   final scrollController = ScrollController();
 
@@ -107,12 +108,12 @@ class _CreditsState extends State<Credits> {
 
       if (!mounted) return;
 
-      await player.play(
+      await player?.play(
         AssetSource(Assets.sounds.kblCredits.split('/').skip(1).join('/')),
         volume: .25,
       );
 
-      await player.seek(const .new(milliseconds: 750));
+      await player?.seek(const .new(milliseconds: 750));
 
       if (!mounted) return;
 
@@ -143,7 +144,7 @@ class _CreditsState extends State<Credits> {
   void dispose() {
     scrollController.dispose();
     listController.dispose();
-    player.dispose();
+    player?.dispose();
     super.dispose();
   }
 

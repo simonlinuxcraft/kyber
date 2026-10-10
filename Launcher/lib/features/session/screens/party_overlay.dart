@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' as mt;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:kyber/kyber.dart';
 import 'package:kyber_launcher/core/config/colors.dart';
+import 'package:kyber_launcher/core/services/gstreamer_check.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/maxima/widgets/maxima_avatar.dart';
 import 'package:kyber_launcher/features/session/providers/session_cubit.dart';
@@ -23,18 +24,18 @@ class PartyOverlay extends StatefulWidget {
 }
 
 class _PartyOverlayState extends State<PartyOverlay> {
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final AudioPlayer? _audioPlayer = canPlayAudio ? AudioPlayer() : null;
 
   @override
   void initState() {
     _audioPlayer
-      ..setSource(AssetSource('sounds/party/invitation.wav'))
+      ?..setSource(AssetSource('sounds/party/invitation.wav'))
       ..setPlayerMode(.lowLatency)
       ..setReleaseMode(.stop)
       ..setVolume(.1);
 
-    _audioPlayer.onPlayerComplete.listen((_) async {
-      await _audioPlayer.seek(Duration.zero);
+    _audioPlayer?.onPlayerComplete.listen((_) async {
+      await _audioPlayer?.seek(Duration.zero);
     });
 
     super.initState();
@@ -293,7 +294,7 @@ class _InviteBanner extends StatefulWidget {
   const _InviteBanner({required this.invite, required this.audioPlayer});
 
   final PendingInvite? invite;
-  final AudioPlayer audioPlayer;
+  final AudioPlayer? audioPlayer;
 
   @override
   State<_InviteBanner> createState() => _InviteBannerState();
@@ -331,7 +332,7 @@ class _InviteBannerState extends State<_InviteBanner>
   }
 
   void _playInviteSound() {
-    widget.audioPlayer.resume();
+    widget.audioPlayer?.resume();
   }
 
   @override

@@ -21,7 +21,9 @@ class IngameViewCubit extends Cubit<IngameViewState> {
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
-  bool _loadingInFlight = false;
+
+  int _loadId = 0;
+  String? _loadingId;
 
   @override
   Future<void> close() {
@@ -32,6 +34,8 @@ class IngameViewCubit extends Cubit<IngameViewState> {
   void unloadServer() {
     _logger.info('Unloading server');
 
+    _loadId++;
+    _loadingId = null;
     unawaited(_subscription?.cancel());
     _subscription = null;
     _channel?.sink.close();
@@ -76,36 +80,40 @@ class IngameViewCubit extends Cubit<IngameViewState> {
       return;
     }
 
-    // Guard against duplicate selectServer calls. KyberStatusPlaying can
-    // fire multiple times in quick succession (heartbeat, player-count
-    // update) which would make _channel.stream.listen() throw "Stream has
-    // already been listened to" on the second call and also triggers the
-    // "port = 0" / 403 follow-up symptom when two parallel WebSocket
-    // connects race the backend.
-    if (_loadingInFlight) {
+    final id = serverId ?? state.id;
+
+    // KyberStatusPlaying can fire several times while a load is still
+    // running, and every restart would open another WebSocket that races
+    // the backend ("port = 0" / 403). Switching to another server still
+    // replaces the running load.
+    if (id != null && id == _loadingId) {
       _logger.warning('selectServer already in flight, skipping duplicate');
       return;
     }
-    _loadingInFlight = true;
+
+    final loadId = ++_loadId;
+    _loadingId = id;
+    unawaited(_subscription?.cancel());
+    _subscription = null;
+    unawaited(_channel?.sink.close());
+    _channel = null;
+    _keepAliveTimer?.cancel();
 
     try {
-      await _subscription?.cancel();
-      _subscription = null;
-      await _channel?.sink.close();
-      _channel = null;
-      _keepAliveTimer?.cancel();
-      final id = serverId ?? state.id;
       _logger.info('Loading server $id');
       emit(IngameViewState(id: id));
       final service = sl.get<KyberGRPCService>();
       final server = await service.serverBrowserClient.getServer(
         ServerRequest(id: id),
       );
+      if (loadId != _loadId || isClosed) {
+        return;
+      }
       emit(state.copyWith(id: id, server: server));
 
       _logger.info('Subscribing to server events');
 
-      _channel = IOWebSocketChannel.connect(
+      final channel = IOWebSocketChannel.connect(
         'wss://api.${Preferences.admin.apiEnv}.kyber.gg/ws/client/${server.id}',
         headers: {
           'Authorization': service.token,
@@ -113,9 +121,15 @@ class IngameViewCubit extends Cubit<IngameViewState> {
         connectTimeout: const Duration(seconds: 10),
       );
 
-      await _channel?.ready;
+      _channel = channel;
 
-      _subscription = _channel?.stream.listen(
+      await channel.ready;
+      if (loadId != _loadId || isClosed) {
+        unawaited(channel.sink.close());
+        return;
+      }
+
+      _subscription = channel.stream.listen(
         (event) {
           try {
             final data = ServerManagementAPIEvent.fromBuffer(
@@ -136,7 +150,9 @@ class IngameViewCubit extends Cubit<IngameViewState> {
         },
         onDone: () {
           _logger.info('Stream done');
-          unloadServer();
+          if (loadId == _loadId) {
+            unloadServer();
+          }
         },
         onError: (dynamic e, StackTrace s) {
           NotificationService.showNotification(
@@ -144,17 +160,28 @@ class IngameViewCubit extends Cubit<IngameViewState> {
             message: 'Lost connection to the server: $e',
           );
           _logger.severe('Stream error', e, s);
-          unloadServer();
+          if (loadId == _loadId) {
+            unloadServer();
+          }
         },
       );
 
       _keepAliveTimer = Timer.periodic(
         const Duration(seconds: 10),
-        (_) async => _channel?.sink.add(''),
+        (timer) {
+          if (loadId != _loadId || channel.closeCode != null) {
+            timer.cancel();
+            return;
+          }
+          channel.sink.add('');
+        },
       );
 
       await Future<void>.delayed(const Duration(seconds: 3));
     } on WebSocketException catch (e, s) {
+      if (loadId != _loadId) {
+        return;
+      }
       var error = 'Failed to connect to websocket';
       switch (e.httpStatusCode ?? 0) {
         case 401:
@@ -167,6 +194,9 @@ class IngameViewCubit extends Cubit<IngameViewState> {
       NotificationService.error(message: error);
       unloadServer();
     } on GrpcError catch (e, s) {
+      if (loadId != _loadId) {
+        return;
+      }
       _logger.severe('Error loading server:', e, s);
       NotificationService.showNotification(
         title: 'Server error',
@@ -177,6 +207,9 @@ class IngameViewCubit extends Cubit<IngameViewState> {
       );
       unloadServer();
     } on SocketException catch (e, s) {
+      if (loadId != _loadId) {
+        return;
+      }
       _logger.severe('Socket error:', e, s);
       NotificationService.showNotification(
         title: 'Server error',
@@ -185,6 +218,9 @@ class IngameViewCubit extends Cubit<IngameViewState> {
       );
       unloadServer();
     } catch (e, s) {
+      if (loadId != _loadId) {
+        return;
+      }
       _logger.severe('Error loading server:', e, s);
       NotificationService.showNotification(
         title: 'Server error',
@@ -193,7 +229,9 @@ class IngameViewCubit extends Cubit<IngameViewState> {
       );
       unloadServer();
     } finally {
-      _loadingInFlight = false;
+      if (loadId == _loadId) {
+        _loadingId = null;
+      }
     }
   }
 }

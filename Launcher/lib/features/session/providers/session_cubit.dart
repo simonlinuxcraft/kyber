@@ -434,6 +434,16 @@ class SessionCubit extends Cubit<SessionState> {
     final info = _inParty?.joinGameInfo;
     if (info == null) return;
 
+    // The host's own game is the party server, there is nothing to join.
+    final kyberStatus = navigatorKey.currentContext
+        ?.read<KyberStatusCubit>()
+        .state;
+    if (kyberStatus is KyberStatusHosting &&
+        kyberStatus.server?.id == info.serverId) {
+      gameJoined = true;
+      return;
+    }
+
     final instance = sl.maybeGet<MaximaGameInstance>();
     // On Linux a running game cannot switch servers, and instance.pid is the
     // Wine PID, so killPid would hit an unrelated Linux process.
@@ -484,15 +494,6 @@ class SessionCubit extends Cubit<SessionState> {
           return;
         }
       }
-    }
-
-    final kyberStatus = navigatorKey.currentContext
-        ?.read<KyberStatusCubit>()
-        .state;
-    if (kyberStatus is KyberStatusHosting &&
-        kyberStatus.server?.id == info.serverId) {
-      gameJoined = true;
-      return;
     }
 
     gameJoined = true;

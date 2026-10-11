@@ -10,7 +10,7 @@ class TitleBar extends StatelessWidget {
       padding: const .only(top: 10),
       child: Row(
         children: [
-          Assets.icons.betaIcon.svg(height: 20),
+          Assets.icons.betaIcon.svg(height: 24),
           const Spacer(),
         ],
       ),

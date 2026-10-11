@@ -49,6 +49,7 @@ for the Linux port to function:
 | `Launcher/assets/fonts/Barlow-OFL.txt` | jpt/barlow LICENSE | SIL OFL 1.1 (verbatim) | Required-with-redistribution per OFL §1 |
 | `Launcher/assets/fonts/AurebeshRodian.otf` | AurekFonts/Aurebesh_Rodian (https://github.com/AurekFonts/Aurebesh_Rodian) | MIT | Replacement for proprietary Pixel Sagas Aurebesh; AurebeshRodian-LICENSE.txt carried alongside |
 | `Launcher/assets/fonts/AurebeshRodian-LICENSE.txt` | AurekFonts/Aurebesh_Rodian LICENSE | MIT (verbatim) | Required by MIT clause to retain copyright + license notice |
+| `Launcher/assets/icons/beta_icon.svg` | Upstream Kyber title badge, modified | GPL-3.0 (Kyber) | "OPEN BETA" replaced by "LINUX PORT" (Barlow Condensed, as outlines) and the K mark by Tux, drawn by Larry Ewing (lewing@isc.tamu.edu) with The GIMP |
 
 ## C. Cargo-patched dependencies
 

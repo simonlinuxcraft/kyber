@@ -16,17 +16,21 @@ import 'package:kyber_launcher/shared/ui/dialog/kyber_dialog.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart';
 
-/// Removes the folder a deleted mod sat in, once nothing is left in it.
+/// Removes the folder a deleted mod sat in once nothing is left in it, and
+/// every parent that is empty after that, up to the mods folder.
 ///
 /// A Nexus download unpacks into its own folder, so deleting the mod used to
-/// leave that folder behind for every mod that was not a collection. Guarding
-/// with `isWithin` rather than comparing against the base path keeps this off
-/// the mods folder itself: `join(base, dirname('mod.fbmod'))` is `base/.`,
-/// which no string compare against `base` ever caught.
+/// leave that folder behind for every mod that was not a collection. Mods
+/// unpacked by hand often sit one folder deeper. Guarding with `isWithin`
+/// rather than comparing against the base path keeps this off the mods folder
+/// itself: `join(base, dirname('mod.fbmod'))` is `base/.`, which no string
+/// compare against `base` ever caught.
 void pruneEmptyModFolder(String basePath, String filename) {
-  final folder = Directory(join(basePath, dirname(filename)));
-  if (!isWithin(basePath, folder.path)) return;
-  if (folder.listSync().isEmpty) folder.deleteSync();
+  var folder = Directory(join(basePath, dirname(filename)));
+  while (isWithin(basePath, folder.path) && folder.listSync().isEmpty) {
+    folder.deleteSync();
+    folder = folder.parent;
+  }
 }
 
 class DeleteModsDialog extends StatefulWidget {

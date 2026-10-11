@@ -173,7 +173,8 @@ class KyberProxyCubit extends Cubit<KyberProxyState> {
       return null;
     } finally {
       try {
-        await queue?.cancel();
+        // A timed-out next() is still pending and a plain cancel waits for it.
+        await queue?.cancel(immediate: true);
       } catch (_) {}
       try {
         await channel?.sink.close().timeout(_kPingTimeout);

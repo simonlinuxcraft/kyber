@@ -164,6 +164,58 @@ void main() {
     expect(mod.existsSync(), isTrue);
   });
 
+  test(
+    'server and dropped downloads are filed under the archive name',
+    () async {
+      // Server mod metadata from a server or party download, none from a drop.
+      for (final metadata in [
+        '{"1":"Maul Shadow Lord Sabers","2":"1.1"}',
+        '',
+      ]) {
+        final root = await Directory.systemTemp.createTemp('kyber-nexus-name.');
+        addTearDown(() => root.delete(recursive: true));
+        final mod = File(p.join(root.path, 'Maul.fbmod'));
+        await mod.writeAsString('mod');
+
+        await DownloadPostProcessor.fileNexusDownload(
+          basePath: root.path,
+          metadata: metadata,
+          extractedFiles: [mod.path],
+          archive:
+              '/home/user/Downloads/'
+              'Maul Shadow Lord Sabers 1.1-13865-1-1-1777560401.rar',
+        );
+
+        const filename =
+            'Maul Shadow Lord Sabers 1.1-13865-1-1-1777560401/Maul.fbmod';
+        expect(await File(p.join(root.path, filename)).readAsString(), 'mod');
+        expect(ModUpdateService.referenceFor(filename)?.modId, 13865);
+      }
+    },
+  );
+
+  test('archives without Nexus naming and mod updates stay put', () async {
+    final root = await Directory.systemTemp.createTemp('kyber-nexus-loose.');
+    addTearDown(() => root.delete(recursive: true));
+    final mod = File(p.join(root.path, 'sample.fbmod'));
+    await mod.writeAsString('mod');
+
+    await DownloadPostProcessor.fileNexusDownload(
+      basePath: root.path,
+      metadata: '{"1":"Server Mod"}',
+      extractedFiles: [mod.path],
+      archive: 'sample.zip',
+    );
+    await DownloadPostProcessor.fileNexusDownload(
+      basePath: root.path,
+      metadata: '{"type":"mod-update"}',
+      extractedFiles: [mod.path],
+      archive: 'Maul Shadow Lord Sabers 1.1-13865-1-1-1777560401.rar',
+    );
+
+    expect(mod.existsSync(), isTrue);
+  });
+
   test('a partial update keeps the files it did not ship', () async {
     final root = await Directory.systemTemp.createTemp('kyber-mod-partial.');
     addTearDown(() => root.delete(recursive: true));

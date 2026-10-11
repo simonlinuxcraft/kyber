@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/download_manager/services/archive_extractor.dart';
 import 'package:kyber_launcher/features/download_manager/services/platform/download_platform_integration.dart';
+import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -69,6 +70,7 @@ class DownloadPostProcessor {
         basePath: update.task.directory,
         metadata: update.task.metaData,
         extractedFiles: result.extractedFiles,
+        archive: update.task.filename,
       );
       _logger.info('Extraction successful');
     } catch (e, s) {
@@ -163,24 +165,38 @@ class DownloadPostProcessor {
     }
   }
 
-  /// Moves a Nexus download into `nexus-<modId>-<fileId>`, the only place the
-  /// update check can read those ids back from. Never throws: a mod left in
-  /// the root still works, the update check just cannot see it.
-  @visibleForTesting
+  /// Moves a Nexus download into `nexus-<modId>-<fileId>`, or into a folder
+  /// named after the Nexus archive when only that is known (server, party and
+  /// dropped downloads). The update check reads the ids back from there. Never
+  /// throws: a mod left in the root still works, the update check just cannot
+  /// see it.
   static Future<void> fileNexusDownload({
     required String basePath,
     required String metadata,
     required List<String> extractedFiles,
+    String? archive,
   }) async {
     try {
-      if (metadata.isEmpty) return;
-      final decoded = jsonDecode(metadata);
-      if (decoded is! Map<String, dynamic> || decoded['type'] != 'nexus') {
+      final Object? decoded;
+      try {
+        decoded = metadata.isEmpty ? null : jsonDecode(metadata);
+      } on FormatException {
         return;
       }
-      final modId = decoded['modId'];
-      final fileId = decoded['fileId'];
-      if (modId is! int || fileId is! int) return;
+      final String folder;
+      if (decoded is Map<String, dynamic> && decoded['type'] == 'nexus') {
+        final modId = decoded['modId'];
+        final fileId = decoded['fileId'];
+        if (modId is! int || fileId is! int) return;
+        folder = 'nexus-$modId-$fileId';
+      } else if (decoded is Map<String, dynamic> &&
+          decoded['type'] == 'mod-update') {
+        return;
+      } else {
+        final name = archive == null ? '' : p.basenameWithoutExtension(archive);
+        if (ModUpdateService.referenceFor(name) == null) return;
+        folder = name;
+      }
 
       final files = extractedFiles
           .map(File.new)
@@ -188,7 +204,7 @@ class DownloadPostProcessor {
           .toList();
       if (!files.any((file) => p.extension(file.path) == '.fbmod')) return;
 
-      final dir = Directory(p.join(basePath, 'nexus-$modId-$fileId'));
+      final dir = Directory(p.join(basePath, folder));
       await dir.create();
       for (final file in files) {
         final target = p.join(dir.path, p.basename(file.path));

@@ -11,6 +11,7 @@ import 'package:kyber_launcher/features/download_manager/models/download_link_ty
 import 'package:kyber_launcher/features/download_manager/models/download_request.dart';
 import 'package:kyber_launcher/features/download_manager/services/archive_extractor.dart';
 import 'package:kyber_launcher/features/download_manager/services/download_orchestrator.dart';
+import 'package:kyber_launcher/features/download_manager/services/download_post_processor.dart';
 import 'package:kyber_launcher/features/mod_browser/dialogs/collection_import_dialog.dart';
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
 import 'package:kyber_launcher/injection_container.dart';
@@ -75,7 +76,13 @@ class DragAndDropHandler {
     }
 
     final extractor = ArchiveExtractor(basePath: ModService.getBasePath());
-    await extractor.extract(file.path, deleteSource: false);
+    final result = await extractor.extract(file.path, deleteSource: false);
+    await DownloadPostProcessor.fileNexusDownload(
+      basePath: ModService.getBasePath(),
+      metadata: '',
+      extractedFiles: result.extractedFiles,
+      archive: file.path,
+    );
 
     final fileName = path.basename(file.path);
     Logger.root.info('Installed mod: $fileName');

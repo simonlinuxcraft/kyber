@@ -245,7 +245,6 @@ class ModUpdateService with ChangeNotifier {
     return newest;
   }
 
-  @visibleForTesting
   static ModUpdateReference? referenceFor(String filename) {
     final folder = filename.replaceAll(r'\', '/').split('/').first;
     final launcher = _launcherFolderPattern.firstMatch(folder);

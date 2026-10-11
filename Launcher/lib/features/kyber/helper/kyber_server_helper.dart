@@ -78,7 +78,15 @@ class KyberServerHelper {
     );
 
     var serverIp = server.ip;
-    final currentIp = await KyberNetworkHelper.getCurrentIpAddress();
+    String? currentIp;
+    try {
+      currentIp = await KyberNetworkHelper.getCurrentIpAddress().timeout(
+        const Duration(seconds: 5),
+      );
+    } on Object catch (e) {
+      // Only used to spot a server hosted here, not worth blocking the join.
+      _logger.warning('Public IP lookup failed: $e');
+    }
     if (serverIp == currentIp) {
       serverIp = '127.0.0.1';
     }

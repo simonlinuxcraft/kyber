@@ -460,6 +460,7 @@ class ServerBrowserCubit extends Cubit<ServerBrowserState> {
       NotificationService.showNotification(
         message: 'All mods downloaded! Joining ${serverInfo.name}...',
       );
+      Logger('server_browser').info('All mods installed, joining server');
 
       timer.cancel();
       _downloadChecker = null;

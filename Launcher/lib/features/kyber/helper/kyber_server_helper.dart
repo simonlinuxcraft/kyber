@@ -283,6 +283,7 @@ class KyberServerHelper {
         selectedCollection: selectedCollection,
       );
 
+      _logger.info('Server ${server.name} is full, joined the queue');
       NotificationService.info(
         message: 'Server is full. You joined the queue.',
       );

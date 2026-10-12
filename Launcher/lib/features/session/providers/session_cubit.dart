@@ -263,6 +263,7 @@ class SessionCubit extends Cubit<SessionState> {
 
   Future<void> _onQueueReserved(QueueInfo info) async {
     if (gameJoined) return;
+    _logger.info('Queue spot reserved on server ${info.serverId}, joining');
 
     final partyInfo = _inParty?.joinGameInfo;
     if (partyInfo != null && partyInfo.serverId == info.serverId) {

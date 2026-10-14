@@ -284,6 +284,18 @@ class MaximaHelper {
       }
     }
 
+    if (Preferences.general.disableForceDX11) {
+      ProcessEnv.set('KYBER_EXPERIMENTAL_DISABLE_FORCE_DX11', '1');
+    } else {
+      ProcessEnv.delete('KYBER_EXPERIMENTAL_DISABLE_FORCE_DX11');
+    }
+
+    if (Preferences.general.disableForceNoHDR) {
+      ProcessEnv.set('KYBER_EXPERIMENTAL_DISABLE_FORCE_NOHDR', '1');
+    } else {
+      ProcessEnv.delete('KYBER_EXPERIMENTAL_DISABLE_FORCE_NOHDR');
+    }
+
     final gameClient = ClientGRPCService('127.0.0.1', interfacePort);
     // MAXIMA-LINUX-PORT-MOD 2026-08-15: the PID resolves only when the game
     // opens its LSX connection, so a game that starts but never connects

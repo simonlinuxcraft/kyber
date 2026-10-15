@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:collection/collection.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -123,33 +121,6 @@ class KyberServerHelper {
     );
 
     try {
-      // A running DLL cannot consume a replacement token. Stop before
-      // CreateJoinToken invalidates the token it already holds.
-      if (sl.isRegistered<MaximaGameInstance>()) {
-        final instance = sl.get<MaximaGameInstance>();
-
-        // Probe first so the stale-instance cleanup below keeps working: if the
-        // port refuses, BF2 is already gone and the unavailable branch clears
-        // the dangling MaximaGameInstance. A game that is busy loading answers
-        // late or not at all, which still means it is running.
-        try {
-          await instance.clientService.client
-              .getVoipSettings(Empty())
-              .timeout(const Duration(seconds: 5));
-        } on TimeoutException {
-          _logger.info('Game did not answer the probe in time, assuming alive');
-        }
-
-        _logger.info(
-          'Join needs a game restart, the DLL still holds the startup token',
-        );
-        NotificationService.warning(
-          title: 'Restart required',
-          message: 'Close Battlefront II, then press Play to join this server.',
-        );
-        return;
-      }
-
       final service = sl.get<KyberGRPCService>();
       final JoinTokenResponse joinToken;
       try {
@@ -182,6 +153,34 @@ class KyberServerHelper {
         spectate: spectator ?? false,
         joinToken: joinToken.token,
       );
+
+      if (sl.isRegistered<MaximaGameInstance>()) {
+        _logger.info('Game is running, handing the join to the DLL');
+        final instance = sl.get<MaximaGameInstance>();
+        try {
+          await instance.clientService.client.joinServer(joinRequest);
+        } on GrpcError catch (e) {
+          // Only the game's own port refusing means BF2 is gone. The backend
+          // answers unavailable too, and that must not drop a live game.
+          if (e.code != StatusCode.unavailable) rethrow;
+          _logger.warning(
+            'Game gRPC unreachable, removing stale MaximaGameInstance',
+          );
+          try {
+            await sl.get<MaximaInstanceService>().removeInstance(instance);
+          } on Object catch (cleanupErr, cleanupStack) {
+            _logger.warning(
+              'Failed to clean up stale instance',
+              cleanupErr,
+              cleanupStack,
+            );
+          }
+          NotificationService.error(
+            message: 'Game session was lost. Please start the game again.',
+          );
+        }
+        return;
+      }
 
       // MAXIMA-LINUX-PORT-MOD 2026-08-21: refresh only after 8 of the 15
       // minutes. CreateJoinToken drops all tokens before its capacity check,
@@ -225,32 +224,6 @@ class KyberServerHelper {
         _logger.info('Server refused the join: ${e.message}');
       } else {
         _logger.severe('Failed to join server: ${e.message}', e);
-      }
-
-      // If the DLL-gRPC port refused our connection, the previously
-      // injected Kyber.dll is gone (BF2 was closed or crashed) but the
-      // launcher still holds the MaximaGameInstance reference. Remove it
-      // so the next Play click goes through the fresh-game dialog
-      // instead of repeatedly pinging a dead port.
-      if (e.code == StatusCode.unavailable &&
-          sl.isRegistered<MaximaGameInstance>()) {
-        _logger.warning(
-          'Game gRPC unreachable, removing stale MaximaGameInstance',
-        );
-        try {
-          final stale = sl.get<MaximaGameInstance>();
-          await sl.get<MaximaInstanceService>().removeInstance(stale);
-        } on Object catch (cleanupErr, cleanupStack) {
-          _logger.warning(
-            'Failed to clean up stale instance',
-            cleanupErr,
-            cleanupStack,
-          );
-        }
-        NotificationService.error(
-          message: 'Game session was lost. Please start the game again.',
-        );
-        return;
       }
 
       NotificationService.error(

@@ -459,16 +459,6 @@ class SessionCubit extends Cubit<SessionState> {
     }
 
     final instance = sl.maybeGet<MaximaGameInstance>();
-    // On Linux a running game cannot switch servers, and instance.pid is the
-    // Wine PID, so killPid would hit an unrelated Linux process.
-    if (instance != null && Platform.isLinux) {
-      NotificationService.warning(
-        title: 'Restart required',
-        message: 'Close Battlefront II, then join again from the party window.',
-      );
-      return;
-    }
-
     if (instance != null) {
       final clientMods = instance.gameplayMods
           .map((e) => e.toCollectionMod())
@@ -480,7 +470,24 @@ class SessionCubit extends Cubit<SessionState> {
           )
           .toList();
 
-      if (!const ListEquality<CollectionMod>().equals(clientMods, mods)) {
+      final modsMatch = const ListEquality<CollectionMod>().equals(
+        clientMods,
+        mods,
+      );
+
+      // instance.pid is the Wine PID, so killPid would hit an unrelated
+      // Linux process.
+      if (!modsMatch && Platform.isLinux) {
+        NotificationService.warning(
+          title: 'Restart required',
+          message:
+              'The party plays with other mods. Close Battlefront II, '
+              'then join again from the party window.',
+        );
+        return;
+      }
+
+      if (!modsMatch) {
         NotificationService.warning(
           message:
               'Game is running with the wrong set of mods. Restarting the game to join the party...',

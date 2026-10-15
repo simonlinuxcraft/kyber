@@ -10,6 +10,7 @@ import 'package:kyber_launcher/core/services/gstreamer_check.dart';
 import 'package:kyber_launcher/gen/assets.gen.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/injection_container.dart';
+import 'package:logging/logging.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 const credits = <String, Map<String, List<String>>>{
@@ -89,6 +90,7 @@ class Credits extends StatefulWidget {
 }
 
 class _CreditsState extends State<Credits> {
+  final _logger = Logger('credits');
   PatronListResponse? patrons;
   final AudioPlayer? player = canPlayAudio ? AudioPlayer() : null;
   final listController = ListController();
@@ -149,11 +151,17 @@ class _CreditsState extends State<Credits> {
   }
 
   Future<List<String>> _fetchBfpContributors() async {
-    final resp = await Dio().get<String>(
-      'https://battlefront.plus/lists/devs.json',
-    );
-    final parsed = jsonDecode(resp.data!) as List<dynamic>;
-    return parsed.map((e) => e['name'] as String).toList();
+    // An unreachable battlefront.plus left the whole page on its spinner.
+    try {
+      final resp = await Dio().get<String>(
+        'https://battlefront.plus/lists/devs.json',
+      );
+      final parsed = jsonDecode(resp.data!) as List<dynamic>;
+      return parsed.map((e) => e['name'] as String).toList();
+    } on Object catch (e) {
+      _logger.warning('BF+ contributor list unavailable: $e');
+      return bfpDevs;
+    }
   }
 
   @override

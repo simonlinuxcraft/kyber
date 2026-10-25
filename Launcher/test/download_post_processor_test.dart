@@ -1,12 +1,47 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kyber_launcher/features/download_manager/services/download_post_processor.dart';
 import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
+  // The post processor runs in the downloader isolate, so a failed update has
+  // to come back through onError; a toast from there never shows.
+  test('a failed mod update is reported through onError', () async {
+    final root = await Directory.systemTemp.createTemp('kyber-update-fail.');
+    addTearDown(() => root.delete(recursive: true));
+    await File('test/fixtures/mod.7z').copy(p.join(root.path, 'update.7z'));
+
+    final errors = <String>[];
+    await DownloadPostProcessor().processCompletedDownload(
+      TaskStatusUpdate(
+        DownloadTask(
+          url: 'https://example.com/update.7z',
+          filename: 'update.7z',
+          // Task strips one leading separator, the orchestrator adds it too.
+          directory: '/${root.path}',
+          baseDirectory: BaseDirectory.root,
+          metaData: jsonEncode({
+            'type': 'mod-update',
+            'source': 'removed-meanwhile',
+            'modId': 14257,
+            'fileId': 1234,
+            'uploaded': 2000000000,
+          }),
+        ),
+        TaskStatus.complete,
+      ),
+      onError: errors.add,
+    );
+
+    expect(errors, [
+      'Mod update not installed: Installed mod update source not found',
+    ]);
+  });
+
   test(
     'a mod update replaces its old download and keeps Nexus provenance',
     () async {

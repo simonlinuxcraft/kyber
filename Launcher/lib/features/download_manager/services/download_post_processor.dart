@@ -2,9 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:background_downloader/background_downloader.dart';
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
-import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/download_manager/services/archive_extractor.dart';
 import 'package:kyber_launcher/features/download_manager/services/platform/download_platform_integration.dart';
 import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
@@ -22,6 +20,7 @@ class DownloadPostProcessor {
   Future<void> processCompletedDownload(
     TaskStatusUpdate update, {
     ProgressCallback? onProgress,
+    void Function(String message)? onError,
   }) async {
     if (update.status != TaskStatus.complete) {
       return;
@@ -58,12 +57,12 @@ class DownloadPostProcessor {
         );
       } on Object catch (e, s) {
         // Silence here would look like a finished update that did nothing.
+        // This runs in the downloader isolate, which has no UI to toast in.
         _logger.severe('Mod update could not be installed', e, s);
-        NotificationService.showNotification(
-          message: e is FileSystemException
+        onError?.call(
+          e is FileSystemException
               ? 'Mod update not installed: ${e.message}'
               : 'Mod update not installed, see the log for details',
-          severity: InfoBarSeverity.error,
         );
       }
       await fileNexusDownload(

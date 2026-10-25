@@ -64,6 +64,7 @@ Future<void> _onTaskDone(
     (count, total) {
       sendPort?.send({'extracted': count, 'total': total});
     },
+    (message) => sendPort?.send({'error': message}),
   );
 }
 
@@ -150,9 +151,14 @@ class DownloadOrchestrator with ChangeNotifier {
     await FileDownloader().ready;
 
     FileDownloader().receivePort.listen((message) {
+      final error = (message as Map)['error'];
+      if (error is String) {
+        NotificationService.error(message: error);
+        return;
+      }
       sl.get<DownloadOrchestrator>()._extractionProgressUpdates.add(
         ProgressUpdate(
-          (message as Map)['extracted'] as int,
+          message['extracted'] as int,
           message['total'] as int,
         ),
       );
@@ -488,6 +494,7 @@ class DownloadOrchestrator with ChangeNotifier {
   static Future<void> _processCompletedDownloadInIsolate(
     TaskStatusUpdate update,
     ProgressCallback? onProgress,
+    void Function(String message)? onError,
   ) async {
     Logger.root.level = Level.INFO;
     Logger.root.onRecord.listen((record) {
@@ -498,6 +505,7 @@ class DownloadOrchestrator with ChangeNotifier {
     await postProcessor.processCompletedDownload(
       update,
       onProgress: onProgress,
+      onError: onError,
     );
   }
 

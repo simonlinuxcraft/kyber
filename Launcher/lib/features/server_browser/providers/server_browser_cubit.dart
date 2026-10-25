@@ -80,9 +80,30 @@ class ServerBrowserCubit extends Cubit<ServerBrowserState> {
         spectator: spectator,
         cosmeticCollection: cosmeticCollection,
       );
+    } on Object catch (e, s) {
+      // The ban check is a backend call; a stale server id made the
+      // DOWNLOAD MODS click end silently in an uncaught NOT_FOUND.
+      Logger('server_browser').severe('Error joining server!', e, s);
+      _showJoinError(e);
     } finally {
       _joining = false;
     }
+  }
+
+  void _showJoinError(Object e) {
+    if (e is GrpcError && e.code == StatusCode.notFound) {
+      NotificationService.showNotification(
+        message: 'Server not found! Refresh the server list.',
+        severity: InfoBarSeverity.error,
+      );
+      return;
+    }
+
+    NotificationService.showNotification(
+      title: 'Error joining server!',
+      message: e.toString(),
+      severity: InfoBarSeverity.error,
+    );
   }
 
   Future<void> _doJoinServer(
@@ -215,20 +236,7 @@ class ServerBrowserCubit extends Cubit<ServerBrowserState> {
     } catch (e, s) {
       Logger('server_browser').severe('Error joining server!', e, s);
       emit(const ServerBrowserState());
-      if (e is GrpcError) {
-        if (e.code == StatusCode.notFound) {
-          return NotificationService.showNotification(
-            message: 'Server not found!',
-            severity: InfoBarSeverity.error,
-          );
-        }
-      }
-
-      NotificationService.showNotification(
-        title: 'Error joining server!',
-        message: e.toString(),
-        severity: InfoBarSeverity.error,
-      );
+      _showJoinError(e);
     }
   }
 
@@ -313,8 +321,24 @@ class ServerBrowserCubit extends Cubit<ServerBrowserState> {
   }
 
   Future<void> _startDownloads() async {
+    try {
+      await _queueMissingMods();
+    } on Object catch (e, s) {
+      // Nobody awaits this; an escaping error left joiningServer set and the
+      // DOWNLOAD MODS button disabled until restart.
+      Logger('server_browser').severe('Error starting mod downloads', e, s);
+      emit(ServerBrowserState(selectedServer: state.selectedServer));
+      NotificationService.showNotification(
+        message: 'Error starting mod downloads: $e',
+        severity: InfoBarSeverity.error,
+      );
+    }
+  }
+
+  Future<void> _queueMissingMods() async {
     final server = state.selectedServer;
     if (server == null) {
+      emit(const ServerBrowserState());
       return;
     }
 
@@ -371,34 +395,40 @@ class ServerBrowserCubit extends Cubit<ServerBrowserState> {
 
     final finderService = ModFinderService();
     for (final mod in notFound) {
-      final serverMod = serverInfo.mods.firstWhere(
+      final serverMod = serverInfo.mods.firstWhereOrNull(
         (e) => e.name == mod.name && e.version == mod.version,
       );
 
-      if (serverMod.link.isEmpty) {
+      if (serverMod == null || serverMod.link.isEmpty) {
         failedMods++;
         continue;
       }
 
-      final resp = await finderService.searchMod(serverMod.link, mod.version);
-      if (resp.$2.isEmpty) {
+      // One Nexus page that cannot be resolved must not stop the others.
+      try {
+        final resp = await finderService.searchMod(serverMod.link, mod.version);
+        if (resp.$2.isEmpty) {
+          failedMods++;
+          continue;
+        }
+
+        final modId = resp.$1;
+        final file = resp.$2.first;
+        final link =
+            'https://www.nexusmods.com/starwarsbattlefront22017/mods/$modId?tab=files&file_id=${file.fileId}';
+        final fMod = mb.Mod(
+          name: file.name,
+          link: link,
+          modId: .parse(modId),
+          fileId: .parse(file.fileId),
+          id: serverInfo.mods.indexOf(serverMod).toString(),
+        );
+
+        modsToDownload.add(fMod);
+      } on Object catch (e) {
+        Logger('server_browser').warning('No download for ${mod.name}: $e');
         failedMods++;
-        continue;
       }
-
-      final modId = resp.$1;
-      final file = resp.$2.first;
-      final link =
-          'https://www.nexusmods.com/starwarsbattlefront22017/mods/$modId?tab=files&file_id=${file.fileId}';
-      final fMod = mb.Mod(
-        name: file.name,
-        link: link,
-        modId: .parse(modId),
-        fileId: .parse(file.fileId),
-        id: serverInfo.mods.indexOf(serverMod).toString(),
-      );
-
-      modsToDownload.add(fMod);
     }
 
     var nexusLoginPrompted = false;

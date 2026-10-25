@@ -1308,6 +1308,19 @@ fn is_bf2_running() -> bool {
 // from other prefixes are untouched. Returns PIDs found.
 #[cfg(target_os = "linux")]
 fn find_maxima_wineserver_pids() -> Vec<i32> {
+    find_maxima_prefix_pids(true)
+}
+
+/// umu runs the game with `<prefix>/pfx`, so paths inside the prefix count.
+#[cfg(target_os = "linux")]
+fn wineprefix_in(value: &str, targets: &[std::path::PathBuf]) -> bool {
+    let p = std::path::PathBuf::from(value);
+    let canon = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
+    targets.iter().any(|t| p.starts_with(t) || canon.starts_with(t))
+}
+
+#[cfg(target_os = "linux")]
+fn find_maxima_prefix_pids(wineserver_only: bool) -> Vec<i32> {
     let maxima_prefix = match maxima::unix::wine::default_wine_prefix_dir() {
         Ok(p) => p,
         Err(_) => return Vec::new(),
@@ -1338,15 +1351,19 @@ fn find_maxima_wineserver_pids() -> Vec<i32> {
         if !name_str.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
-        // Filter to wineserver processes only.
-        let comm_path = entry.path().join("comm");
-        match std::fs::read_to_string(&comm_path) {
-            Ok(comm) => {
-                if comm.trim() != "wineserver" {
-                    continue;
+        if name_str == std::process::id().to_string() {
+            continue;
+        }
+        if wineserver_only {
+            let comm_path = entry.path().join("comm");
+            match std::fs::read_to_string(&comm_path) {
+                Ok(comm) => {
+                    if comm.trim() != "wineserver" {
+                        continue;
+                    }
                 }
+                Err(_) => continue,
             }
-            Err(_) => continue,
         }
         // Read environ to find WINEPREFIX. NUL-separated key=value pairs.
         let environ_path = entry.path().join("environ");
@@ -1361,9 +1378,7 @@ fn find_maxima_wineserver_pids() -> Vec<i32> {
                 Err(_) => continue,
             };
             if let Some(value) = s.strip_prefix("WINEPREFIX=") {
-                let p = std::path::PathBuf::from(value);
-                let canon = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
-                if prefix_targets.iter().any(|t| *t == p || *t == canon) {
+                if wineprefix_in(value, &prefix_targets) {
                     matched = true;
                     break;
                 }
@@ -1383,6 +1398,27 @@ fn is_maxima_wineserver_alive() -> bool {
     !find_maxima_wineserver_pids().is_empty()
 }
 
+// With ntsync, Wine clients wait in the kernel and never notice that the
+// wineserver is gone, so umu.exe, services.exe and the pressure-vessel chain
+// above them would hang until reboot.
+#[cfg(target_os = "linux")]
+fn kill_maxima_prefix_leftovers() {
+    let pids = find_maxima_prefix_pids(false);
+    if pids.is_empty() {
+        return;
+    }
+    info!(
+        "kill_maxima_wineserver: SIGKILLing {} leftover prefix process(es): {:?}",
+        pids.len(),
+        pids
+    );
+    for &pid in &pids {
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+}
+
 /// Kill any wineservers that are attached to the Maxima wine prefix.
 /// Sends SIGTERM, waits briefly, then SIGKILL stragglers. Prefix-scoped:
 /// wineservers belonging to other Wine games are never touched.
@@ -1392,6 +1428,7 @@ pub fn kill_maxima_wineserver() -> Result<u32, String> {
     let pids = find_maxima_wineserver_pids();
     if pids.is_empty() {
         info!("kill_maxima_wineserver: no wineservers attached to maxima prefix");
+        kill_maxima_prefix_leftovers();
         return Ok(0);
     }
     info!(
@@ -1409,6 +1446,7 @@ pub fn kill_maxima_wineserver() -> Result<u32, String> {
         std::thread::sleep(std::time::Duration::from_millis(100));
         if find_maxima_wineserver_pids().is_empty() {
             info!("kill_maxima_wineserver: all wineservers exited cleanly");
+            kill_maxima_prefix_leftovers();
             return Ok(pids.len() as u32);
         }
     }
@@ -1426,6 +1464,7 @@ pub fn kill_maxima_wineserver() -> Result<u32, String> {
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
+    kill_maxima_prefix_leftovers();
     Ok(pids.len() as u32)
 }
 
@@ -1627,3 +1666,18 @@ pub fn reset_wine_prefix() -> Result<PrefixResetResult, String> {
 }
 
 flutter_logger::flutter_logger_init!(LevelFilter::Debug);
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::wineprefix_in;
+    use std::path::PathBuf;
+
+    #[test]
+    fn wineprefix_in_matches_the_prefix_and_paths_inside_it() {
+        let targets = [PathBuf::from("/games/compatdata/1237950/pfx")];
+        assert!(wineprefix_in("/games/compatdata/1237950/pfx", &targets));
+        assert!(wineprefix_in("/games/compatdata/1237950/pfx/pfx/", &targets));
+        assert!(!wineprefix_in("/games/compatdata/1237950/pfx2", &targets));
+        assert!(!wineprefix_in("/games/compatdata/24010/pfx", &targets));
+    }
+}

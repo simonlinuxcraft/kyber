@@ -337,7 +337,8 @@ class MaximaHelper {
 
       try {
         final stalePid = sl.get<MaximaGameInstance>().pid;
-        if (stalePid > 0) {
+        // On Linux the stale PID is a Wine PID and would hit a host process.
+        if (stalePid > 0 && !Platform.isLinux) {
           Process.killPid(stalePid);
         }
       } catch (_) {}
@@ -404,7 +405,11 @@ class MaximaHelper {
       // recovery dialog has a clean slate when the user picks retry
       // or CLI, otherwise we would leave a zombie BF2 in the background.
       try {
-        if (gamePID > 0) {
+        if (Platform.isLinux) {
+          // gamePID is a Wine PID here; stopping the prefix is what ends BF2.
+          final stopped = maxima.killMaximaWineserver();
+          _logger.info('Stopped $stopped wineserver(s) after inject failure');
+        } else if (gamePID > 0) {
           Process.killPid(gamePID);
           _logger.info('Killed orphan BF2 PID $gamePID after inject failure');
         }
@@ -547,7 +552,8 @@ class MaximaHelper {
       if (sl.isRegistered<MaximaGameInstance>()) {
         try {
           final stalePid = sl.get<MaximaGameInstance>().pid;
-          if (stalePid > 0) Process.killPid(stalePid);
+          // On Linux the stale PID is a Wine PID and would hit a host process.
+          if (stalePid > 0 && !Platform.isLinux) Process.killPid(stalePid);
         } catch (_) {}
         sl.unregister<MaximaGameInstance>();
       }

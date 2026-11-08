@@ -43,24 +43,20 @@ endif()
 
 # 2) Stage the kyber CLI bundle next to the launcher.
 #
-# The Linux launch flow delegates the actual game start to the kyber_cli
-# subprocess (see Launcher/lib/features/maxima/helper/maxima_helper.dart).
-# That subprocess plus its sibling helpers (umu-wrapper, ea-auth-webview,
-# the wine-helper.exe used for DLL injection, the maxima-bootstrap that
-# runs the game inside the wine prefix) must all sit in the same `cli/`
-# directory so module_path()-relative lookups inside the CLI resolve
-# correctly.
+# The launcher starts the game in-process (FFI) and only falls back to the
+# kyber_cli subprocess from the inject recovery dialog. Its helpers (umu-wrapper,
+# the wine-helper.exe used for DLL injection, the maxima-bootstrap that runs the
+# game inside the wine prefix) sit in `cli/` where module_path()-relative lookups
+# in maxima-lib find them from both the launcher and the CLI.
 #
-# Layout produced (matches the kyber-bf2-linux reference repo):
+# Layout produced:
 #
 #   bundle/cli/kyber_cli              (compiled by `dart build cli`)
 #   bundle/cli/librust_lib.so         (compiled by `dart build cli`)
 #   bundle/cli/maxima-bootstrap       (cargo --release -p maxima-bootstrap)
 #   bundle/cli/wine-helper.exe        (vendored from CLI/cli_payload/)
 #   bundle/cli/umu-wrapper.sh         (vendored)
-#   bundle/cli/ea-auth-webview.py     (vendored)
-#   bundle/cli/kyber-auth-helper.sh   (vendored)
-#   bundle/cli/bin/xdg-open           (vendored, intercepts EA OAuth URLs)
+#   bundle/cli/bin/nxm_handler.sh     (nxm:// bridge)
 #
 # Pre-condition: `dart build cli` must have been run inside Kyber/CLI/
 # and `cargo build --release -p maxima-bootstrap --target
@@ -125,8 +121,6 @@ install(CODE "
 
   foreach(_payload_file
     umu-wrapper.sh
-    ea-auth-webview.py
-    kyber-auth-helper.sh
     wine-helper.exe)
     if(EXISTS \"${_CLI_PAYLOAD}/\${_payload_file}\")
       file(INSTALL
@@ -135,13 +129,6 @@ install(CODE "
         USE_SOURCE_PERMISSIONS)
     endif()
   endforeach()
-
-  if(EXISTS \"${_CLI_PAYLOAD}/bin/xdg-open\")
-    file(INSTALL
-      \"${_CLI_PAYLOAD}/bin/xdg-open\"
-      DESTINATION \"\${_cli_dst}/bin\"
-      USE_SOURCE_PERMISSIONS)
-  endif()
 
   # Linux NXM (nxm://) protocol bridge. Bash script that drops the URL
   # into \$XDG_RUNTIME_DIR/kyber/nxm-response; the launcher's inotify
@@ -153,27 +140,4 @@ install(CODE "
       USE_SOURCE_PERMISSIONS)
   endif()
 
-  # Linux self-update sidecar. Swaps the staged version into the
-  # `current` symlink under \$HOME/.local/share/kyber/launcher and
-  # re-execs the new launcher binary. Called both from the wrapper
-  # (cold start with pending update) and from the running launcher
-  # right before it exits to apply.
-  if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/../update_apply.sh\")
-    file(INSTALL
-      \"${CMAKE_CURRENT_SOURCE_DIR}/../update_apply.sh\"
-      DESTINATION \"\${_cli_dst}/bin\"
-      USE_SOURCE_PERMISSIONS)
-  endif()
-
-  # Launcher entry-point wrapper. Prefers the per-user self-update
-  # slot at ~/.local/share/kyber/launcher/current/kyber_launcher over
-  # the system bundle; the .deb installer symlinks /usr/bin/kyber-bf2
-  # to this script. Inside the launcher bundle itself it sits at
-  # cli/bin/kyber-bf2 so devs can launch the same way.
-  if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/../kyber-bf2\")
-    file(INSTALL
-      \"${CMAKE_CURRENT_SOURCE_DIR}/../kyber-bf2\"
-      DESTINATION \"\${_cli_dst}/bin\"
-      USE_SOURCE_PERMISSIONS)
-  endif()
 " COMPONENT Runtime)

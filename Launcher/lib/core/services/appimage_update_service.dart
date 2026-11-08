@@ -1,15 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 simonlinuxcraft
 //
-// AppImage container self-update.
-//
-// Sits next to LinuxSelfUpdateService but operates one layer up:
-//   * LinuxSelfUpdateService updates the in-app module bundle (mods,
-//     maxima-bootstrap, CLI helpers) by symlink-flipping
-//     ~/.local/share/kyber/launcher/current.
-//   * AppImageUpdateService updates the AppImage *file itself* by
-//     downloading a new image and exec'ing into it. Only runs when the
-//     launcher was started from an AppImage ($APPIMAGE env is set).
+// AppImage container self-update: downloads a new image and exec's into
+// it. Only runs when the launcher was started from an AppImage ($APPIMAGE
+// env is set). The AUR package is updated by pacman and skips this.
 //
 // Endpoint is configured via KYBER_UPDATE_URL. When the env is empty
 // or the launcher is not inside an AppImage the service is a no-op,
@@ -118,24 +112,8 @@ class AppImageUpdateService {
   /// when not eligible, on any network/parse error, or when already
   /// current. Never throws, never downloads, never restarts.
   Future<AppImageUpdateManifest?> checkForUpdate() async {
-    if (appImagePath == null) {
-      _logger.fine('Not running from AppImage; skipping container update.');
-      return null;
-    }
-    if (isPackagedContext) {
-      _logger.info(
-        'Package-manager context (KYBER_NO_AUTO_INSTALL set); the AppImage '
-        'self-update is disabled, the package manager handles updates.',
-      );
-      return null;
-    }
+    if (!isEligible) return null;
     final url = updateUrl;
-    if (url.isEmpty) {
-      _logger.info(
-        'KYBER_UPDATE_URL not set; AppImage container self-update disabled.',
-      );
-      return null;
-    }
 
     try {
       final manifest = await _fetchManifest(url);

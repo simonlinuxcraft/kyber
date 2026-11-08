@@ -18,10 +18,7 @@ each file's individual SPDX header reflects its upstream license
 | File | Source in tarball | Notes |
 |---|---|---|
 | `umu-wrapper.sh` | `src/share/kyber-bf2/payload/cli/umu-wrapper.sh` | Bash wrapper around umu-run; sets GAMEID, EAEntitlementSource, locale env. SPDX header added in our copy. |
-| `ea-auth-webview.py` | `src/share/kyber-bf2/payload/cli/ea-auth-webview.py` | PyGObject + WebKit2 helper for the EA OAuth login flow. SPDX header added. |
-| `kyber-auth-helper.sh` | `src/share/kyber-bf2/payload/cli/kyber-auth-helper.sh` | Coordination script invoked by the launcher to drive `ea-auth-webview.py`. SPDX header added. |
 | `wine-helper.exe` | `src/share/kyber-bf2/payload/cli/wine-helper.exe` | Pre-built Win32 PE binary, ~786 KiB. **See "wine-helper.exe source" below.** |
-| `bin/xdg-open` | `src/share/kyber-bf2/payload/cli/bin/xdg-open` (if present in tarball) | Shim that prefers the host's `xdg-open` over the umu-pressure-vessel one. |
 
 ## `wine-helper.exe` source - GPLv3 §6(b) written offer
 
@@ -59,7 +56,12 @@ this written offer.
 
 ## Modifications
 
-No content modifications have been made to the files in this
-directory beyond the addition of the SPDX license headers in
-plain-text files. The binary `wine-helper.exe` is byte-identical
-to the tarball.
+`umu-wrapper.sh` carries local changes for the Linux port (Proton
+resolution, locale and registry seeding, Steam Deck handling). Each
+block is marked `MAXIMA-LINUX-PORT-MOD` and the changes are listed in
+`Kyber/NOTICE.md`. The binary `wine-helper.exe` is byte-identical to
+the tarball.
+
+The tarball's `ea-auth-webview.py`, `kyber-auth-helper.sh` and
+`bin/xdg-open` were dropped in November 2026; the EA sign-in goes
+through the system browser and the launcher's paste field instead.

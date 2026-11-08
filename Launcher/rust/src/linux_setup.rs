@@ -11,6 +11,8 @@ use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use maxima::unix::wine::wine_prefix_dir;
+
 const TARGET_LOCALE: &str = "en_US.UTF-8";
 const I18N_SOURCE: &str = "/usr/share/i18n/locales/en_US";
 
@@ -18,18 +20,18 @@ const BF2_STEAM_APP_ID: &str = "1237950";
 
 // Maxima needs its wine prefix to be the BF2 Steam compatdata prefix
 // (otherwise Origin registry / EA desktop state is missing and BF2 bails
-// with an Origin error). We symlink ~/.local/share/maxima/wine/prefix to
-// it. Run on every init_app() because a cleanup script could remove it.
+// with an Origin error). We symlink maxima's wine/prefix to it. Run on
+// every init_app() because a cleanup script could remove it.
 pub fn ensure_critical_symlinks() {
     let home = match std::env::var("HOME") {
         Ok(h) => h,
         Err(_) => return,
     };
 
-    let link_path = PathBuf::from(format!(
-        "{}/.local/share/maxima/wine/prefix",
-        home
-    ));
+    let link_path = match wine_prefix_dir() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
 
     // MAXIMA-LINUX-PORT-MOD: debug/test override. With KYBER_FORCE_STANDALONE_PREFIX
     // set, skip the Steam resolver and drop any existing Steam symlink so
@@ -65,7 +67,6 @@ pub fn ensure_critical_symlinks() {
                 .map(PathBuf::from)
                 .into_iter()
                 .chain([
-                    PathBuf::from("/mnt/Games/SteamLibrary"),
                     PathBuf::from(format!("{}/.steam/steam", home)),
                     PathBuf::from(format!("{}/.local/share/Steam", home)),
                 ])
@@ -157,19 +158,15 @@ pub fn ensure_critical_symlinks() {
 }
 
 // Read-only check for the launch path. BF2 runs with WINEPREFIX set to
-// ~/.local/share/maxima/wine/prefix (see maxima wine_prefix_dir()), which
-// ensure_critical_symlinks() links to BF2's Steam compatdata. If that link
-// does not resolve to an existing prefix (BF2 not installed/launched via
-// Steam, or a custom game path pointing at a non-Steam copy), the launch can
-// only fail with a cryptic Origin error. Call this right after
-// ensure_critical_symlinks() to fail fast with an actionable message instead.
+// maxima's wine/prefix, which ensure_critical_symlinks() links to BF2's
+// Steam compatdata. If that link does not resolve to an existing prefix (BF2
+// not installed/launched via Steam, or a custom game path pointing at a
+// non-Steam copy), the launch can only fail with a cryptic Origin error. Call
+// this right after ensure_critical_symlinks() to fail fast with an actionable
+// message instead.
 pub fn bf2_wine_prefix_available() -> bool {
-    let home = match std::env::var("HOME") {
-        Ok(h) => h,
-        Err(_) => return false,
-    };
     // Path::exists follows the symlink: true only when the target dir exists.
-    PathBuf::from(format!("{}/.local/share/maxima/wine/prefix", home)).exists()
+    wine_prefix_dir().map(|p| p.exists()).unwrap_or(false)
 }
 
 // MAXIMA-LINUX-PORT-MOD: Non-Steam fallback. When no BF2 Steam compatdata
@@ -184,10 +181,8 @@ pub fn bf2_wine_prefix_available() -> bool {
 // Reconcile logic intentionally mirrors ensure_critical_symlinks instead of
 // sharing a helper, to keep the verified Steam path byte-for-byte unchanged.
 pub fn ensure_standalone_prefix() -> Result<(), String> {
-    let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-    let link_path = PathBuf::from(format!("{}/.local/share/maxima/wine/prefix", home));
-    let target =
-        PathBuf::from(format!("{}/.local/share/maxima/wine/prefix-standalone", home));
+    let link_path = wine_prefix_dir().map_err(|e| e.to_string())?;
+    let target = link_path.with_file_name("prefix-standalone");
 
     if !target.exists() {
         std::fs::create_dir_all(&target).map_err(|e| {
@@ -300,9 +295,6 @@ pub fn ensure_en_us_utf8_locale() {
 
     let locale_dir = target_dir.join(TARGET_LOCALE);
 
-    // Always regenerate when the system probe fails. An existing
-    // locale_dir is not proof of completeness - localedef can be killed
-    // mid-write leaving a partial LC_* set.
     if !Path::new(I18N_SOURCE).exists() {
         log::warn!(
             "{} missing - install the locale source package \
@@ -475,33 +467,21 @@ pub fn setup_steam_launch_env() {
     }
 }
 
-/// Patches Wine's `user.reg` to use en-US locale, preventing EA's
-/// "language not entitled" error. Wine initialises the prefix locale from
-/// `$LANG`, so on German systems `Locale=00000407` ends up in the registry.
-/// BF2 calls `GetUserDefaultLCID()` which reads this value, not `LC_ALL`.
+/// Patches the BF2 locale-critical keys in user.reg + system.reg directly.
+/// Wine initialises the prefix locale from `$LANG`, so on German systems
+/// `Locale=00000407` ends up in the registry and BF2's `GetUserDefaultLCID()`
+/// trips EA's "language not entitled" error. Replaces Maxima's 15 sequential
+/// `reg add` calls (each ~3 s of pressure-vessel spawn via umu-run) with two
+/// text-edit passes (~50 ms). Skipped when wineserver is running - Wine
+/// flushes on shutdown and would clobber the writes.
 ///
 /// Called from `init_app()` (existing prefix) and from `start_game()` (first
 /// run: prefix may be created by bootstrap after `init_app()` ran).
-///
-/// Backwards-compatible wrapper around `patch_wine_registry_for_bf2()`.
-/// New callers should invoke `patch_wine_registry_for_bf2()` directly to
-/// also patch the BF2 catalog / Steam-language / HKCU\Environment keys
-/// in a single pass.
-pub fn patch_wine_locale_to_en_us() {
-    patch_wine_registry_for_bf2();
-}
-
-// Patches the BF2 locale-critical keys in user.reg + system.reg
-// directly. Replaces Maxima's 15 sequential `reg add` calls (each
-// ~3 s of pressure-vessel spawn via umu-run) with two text-edit
-// passes (~50 ms). Skipped when wineserver is running - Wine flushes
-// on shutdown and would clobber the writes.
 pub fn patch_wine_registry_for_bf2() {
-    let home = match std::env::var("HOME") {
-        Ok(h) => h,
+    let prefix = match wine_prefix_dir() {
+        Ok(p) => p.to_string_lossy().into_owned(),
         Err(_) => return,
     };
-    let prefix = format!("{}/.local/share/maxima/wine/prefix", home);
 
     if is_wineserver_running() {
         log::info!(
@@ -517,7 +497,6 @@ pub fn patch_wine_registry_for_bf2() {
 }
 
 fn is_wineserver_running() -> bool {
-    use std::process::Command;
     Command::new("pgrep")
         .arg("-x")
         .arg("wineserver")
@@ -533,9 +512,8 @@ fn patch_user_reg_for_bf2(prefix: &str) {
         Err(_) => return,
     };
 
-    let mut patched = content.clone();
-    patched = ensure_keys_in_section(
-        &patched,
+    let mut patched = ensure_keys_in_section(
+        &content,
         r"Control Panel\\International",
         &[
             ("Locale", "00000409"),
@@ -579,9 +557,8 @@ fn patch_system_reg_for_bf2(prefix: &str) {
         Err(_) => return,
     };
 
-    let mut patched = content.clone();
-    patched = ensure_keys_in_section(
-        &patched,
+    let mut patched = ensure_keys_in_section(
+        &content,
         r"Software\\Electronic Arts\\EA Desktop",
         &[("InstallSuccessful", "true")],
     );
@@ -755,11 +732,7 @@ fn ensure_keys_in_section(content: &str, section_path: &str, keys: &[(&str, &str
     for (k, v) in keys {
         let new_line = format!("\"{}\"=\"{}\"", k, v);
         match existing.get(*k) {
-            Some(&idx) => {
-                if result_lines[idx] != new_line {
-                    result_lines[idx] = new_line;
-                }
-            }
+            Some(&idx) => result_lines[idx] = new_line,
             None => to_append.push((*k, *v)),
         }
     }
@@ -777,50 +750,6 @@ fn ensure_keys_in_section(content: &str, section_path: &str, keys: &[(&str, &str
     joined
 }
 
-fn patch_international_section_to_en_us(content: &str) -> String {
-    let mut result = String::with_capacity(content.len());
-    let mut in_section = false;
-
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-
-        if trimmed.starts_with('[') {
-            // Section headers use literal \\ for the registry path separator.
-            in_section = trimmed.contains("Control Panel\\\\International]");
-            result.push_str(line);
-            result.push('\n');
-            continue;
-        }
-
-        if in_section {
-            let replacement: Option<&str> = if trimmed.starts_with("\"Locale\"=") {
-                Some("\"Locale\"=\"00000409\"")
-            } else if trimmed.starts_with("\"LocaleName\"=") {
-                Some("\"LocaleName\"=\"en-US\"")
-            } else if trimmed.starts_with("\"sLanguage\"=") {
-                Some("\"sLanguage\"=\"ENU\"")
-            } else if trimmed.starts_with("\"sCountry\"=") {
-                Some("\"sCountry\"=\"United States\"")
-            } else if trimmed.starts_with("\"iCountry\"=") {
-                Some("\"iCountry\"=\"1\"")
-            } else {
-                None
-            };
-
-            if let Some(r) = replacement {
-                result.push_str(r);
-                result.push('\n');
-                continue;
-            }
-        }
-
-        result.push_str(line);
-        result.push('\n');
-    }
-
-    result
-}
-
 /// Patches the EA Desktop per-user INI file to force English, preventing the
 /// "installed in a language you are not entitled to play" error.
 ///
@@ -829,22 +758,13 @@ fn patch_international_section_to_en_us(content: &str) -> String {
 /// as `de` during the first launch and cached permanently, so Wine registry
 /// patches alone are insufficient.
 ///
-/// Called alongside `patch_wine_locale_to_en_us()` from `init_app()` and
+/// Called alongside `patch_wine_registry_for_bf2()` from `init_app()` and
 /// `start_game()`.
 pub fn patch_ea_user_language() {
-    let home = match std::env::var("HOME") {
-        Ok(h) => h,
+    let dir = match wine_prefix_dir() {
+        Ok(p) => p.join("drive_c/users/steamuser/AppData/Local/Electronic Arts/EA Desktop"),
         Err(_) => return,
     };
-    let ea_dir = format!(
-        "{}/.local/share/maxima/wine/prefix/drive_c/users/steamuser\
-         /AppData/Local/Electronic Arts/EA Desktop",
-        home
-    );
-    let dir = std::path::Path::new(&ea_dir);
-    if !dir.exists() {
-        return;
-    }
 
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -862,7 +782,12 @@ pub fn patch_ea_user_language() {
             Ok(c) => c,
             Err(_) => continue,
         };
-        if !content.contains("location.language=") {
+        // `lines()` normalises CRLF and a missing final newline, so compare the
+        // value instead of the rewritten text or every start logs a patch.
+        let needs_patch = content
+            .lines()
+            .any(|l| l.starts_with("location.language=") && l.trim_end() != "location.language=en");
+        if !needs_patch {
             continue;
         }
         let patched: String = content
@@ -878,9 +803,6 @@ pub fn patch_ea_user_language() {
             .join("\n")
             + "\n";
 
-        if patched == content {
-            continue;
-        }
         match std::fs::write(&path, &patched) {
             Ok(_) => log::info!(
                 "EA Desktop user.ini patched: location.language→en ({})",
@@ -922,10 +844,10 @@ pub fn ensure_vivoxsdk_in_wine_system32() {
         return;
     }
 
-    let system32 = PathBuf::from(format!(
-        "{}/.local/share/maxima/wine/prefix/drive_c/windows/system32",
-        home
-    ));
+    let system32 = match wine_prefix_dir() {
+        Ok(p) => p.join("drive_c/windows/system32"),
+        Err(_) => return,
+    };
     if !system32.exists() {
         log::warn!(
             "{} missing. Wine prefix not initialised, skipping vivoxsdk.dll \

@@ -274,7 +274,6 @@ pub async fn lsx_get_event_stream(pid: u32, is_startup: Option<bool>, game_sink:
 // dialog can show a percentage instead of a frozen-looking window during the
 // ~516MB download. total_bytes == 0 is an idle tick (no active download).
 pub struct ProtonDownloadProgress {
-    pub label: String,
     pub downloaded_bytes: u64,
     pub total_bytes: u64,
 }
@@ -288,13 +287,11 @@ pub struct ProtonDownloadProgress {
 pub async fn get_proton_download_progress(sink: StreamSink<ProtonDownloadProgress>) {
     loop {
         let msg = match maxima::util::github::download_progress() {
-            Some((label, downloaded, total)) => ProtonDownloadProgress {
-                label,
+            Some((_, downloaded, total)) => ProtonDownloadProgress {
                 downloaded_bytes: downloaded,
                 total_bytes: total,
             },
             None => ProtonDownloadProgress {
-                label: String::new(),
                 downloaded_bytes: 0,
                 total_bytes: 0,
             },
@@ -304,6 +301,21 @@ pub async fn get_proton_download_progress(sink: StreamSink<ProtonDownloadProgres
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
+}
+
+fn challenge_response_pid(events: Vec<MaximaEvent>) -> Option<u32> {
+    events.into_iter().find_map(|event| match event {
+        MaximaEvent::ReceivedLSXRequest(pid, request) => {
+            let name: &'static str = request.into();
+            if name == "ChallengeResponse" {
+                debug!("Received ChallengeResponse from LSX for PID {}!", pid);
+                Some(pid)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    })
 }
 
 pub async fn avatar_image(pd: &str, width: u16, height: u16) -> anyhow::Result<String> {
@@ -507,7 +519,7 @@ pub async fn start_game(
     // Also covers first-run: if prefix was just created by a prior bootstrap
     // invocation, the file now exists and we can patch it.
     #[cfg(target_os = "linux")]
-    crate::linux_setup::patch_wine_locale_to_en_us();
+    crate::linux_setup::patch_wine_registry_for_bf2();
     #[cfg(target_os = "linux")]
     crate::linux_setup::patch_ea_user_language();
     #[cfg(target_os = "linux")]
@@ -538,20 +550,8 @@ pub async fn start_game(
 
     loop {
         let mut maxima = maxima_arc.lock().await;
-        for event in maxima.consume_pending_events() {
-            match event {
-                MaximaEvent::ReceivedLSXRequest(pid, request) => {
-                    let name: &'static str = request.into();
-                    if name != "ChallengeResponse" {
-                        continue;
-                    }
-
-                    debug!("Received ChallengeResponse from LSX for PID {}!", pid);
-
-                    return Ok(pid);
-                }
-                _ => (),
-            }
+        if let Some(pid) = challenge_response_pid(maxima.consume_pending_events()) {
+            return Ok(pid);
         }
 
         maxima.update().await;
@@ -567,26 +567,15 @@ pub async fn start_game(
         // logs the Proton and Wine output on the way, so reuse that decision
         // instead of adding a second, competing timeout. Same pattern as
         // lsx_get_event_stream above.
-        // MAXIMA-LINUX-PORT-MOD 2026-08-13: a wineserver liveness probe used to
-        // sit here to end a dead launch sooner than the grace window does. It
-        // was removed: Proton runs the game through the waitforexitandrun verb,
-        // which waits for the previous wineserver to shut down before starting
-        // the game, so a window with no wineserver attached to the prefix is
-        // part of a perfectly healthy launch. A probe landing in that window
-        // aborts a launch that was about to succeed. Do not reintroduce it
-        // without a signal that cannot occur during a normal start.
+        // No wineserver liveness probe here: waitforexitandrun stops the old
+        // wineserver before the game starts, so a prefix without one is part of
+        // a healthy launch. Do not reintroduce it.
         if maxima.playing().is_none() || wait_started.elapsed() >= HANDSHAKE_TIMEOUT {
             // Drain once more before giving up: a ChallengeResponse queued
             // between the consume above and this point is a valid launch and
             // has to win over the bail.
-            for event in maxima.consume_pending_events() {
-                if let MaximaEvent::ReceivedLSXRequest(pid, request) = event {
-                    let name: &'static str = request.into();
-                    if name == "ChallengeResponse" {
-                        debug!("Received ChallengeResponse from LSX for PID {}!", pid);
-                        return Ok(pid);
-                    }
-                }
+            if let Some(pid) = challenge_response_pid(maxima.consume_pending_events()) {
+                return Ok(pid);
             }
 
             bail!(
@@ -834,7 +823,7 @@ pub fn init_app() {
     #[cfg(target_os = "linux")]
     crate::linux_setup::setup_steam_launch_env();
     #[cfg(target_os = "linux")]
-    crate::linux_setup::patch_wine_locale_to_en_us();
+    crate::linux_setup::patch_wine_registry_for_bf2();
     #[cfg(target_os = "linux")]
     crate::linux_setup::patch_ea_user_language();
 
@@ -884,7 +873,6 @@ pub struct ActiveProton {
 /// Result of a BF2 VKD3D shader cache clear attempt. `reason` is a stable
 /// machine-readable tag the UI maps to a localised InfoBar message.
 pub struct ShaderCacheClearResult {
-    pub removed: bool,
     pub bytes_freed: u64,
     pub path: Option<String>,
     /// One of: "removed", "not_present", "bf2_not_installed",
@@ -1065,14 +1053,7 @@ pub fn set_custom_proton_path(_path: Option<String>) -> Result<(), String> {
 #[flutter_rust_bridge::frb(sync)]
 #[cfg(target_os = "linux")]
 pub fn get_custom_proton_path() -> Option<String> {
-    let sidecar = sidecar_path().ok()?;
-    let content = std::fs::read_to_string(&sidecar).ok()?;
-    let trimmed = content.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
+    read_sidecar_trimmed(&sidecar_path().ok()?)
 }
 
 #[flutter_rust_bridge::frb(sync)]
@@ -1149,30 +1130,23 @@ pub fn validate_proton_path(_path: String) -> ProtonValidation {
 /// ~30 stat calls). Returns deduplicated, layout-validated candidates.
 #[cfg(target_os = "linux")]
 pub async fn scan_known_proton_locations() -> Vec<ProtonCandidate> {
-    let home = match std::env::var("HOME") {
-        Ok(h) => h,
-        Err(_) => return Vec::new(),
-    };
-
-    let roots: Vec<std::path::PathBuf> = vec![
-        format!("{}/.local/share/Steam/compatibilitytools.d", home).into(),
-        format!("{}/.steam/steam/compatibilitytools.d", home).into(),
-        format!("{}/.steam/debian-installation/compatibilitytools.d", home).into(),
-        format!("{}/.var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d", home).into(),
-        "/usr/share/steam/compatibilitytools.d".into(),
-        "/usr/local/share/steam/compatibilitytools.d".into(),
-    ];
-
     let mut seen: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
     let mut out: Vec<ProtonCandidate> = Vec::new();
 
-    for root in roots {
+    // Same list as the auto-detection in maxima, so the dialog offers what a
+    // launch would pick up anyway.
+    for (root, proton_named_only) in maxima::unix::wine::proton_search_roots() {
         let entries = match std::fs::read_dir(&root) {
             Ok(e) => e,
             Err(_) => continue,
         };
         for entry in entries.flatten() {
             let path = entry.path();
+            if proton_named_only
+                && !entry.file_name().to_string_lossy().to_ascii_lowercase().contains("proton")
+            {
+                continue;
+            }
             if !path.is_dir() {
                 continue;
             }
@@ -1321,7 +1295,7 @@ fn wineprefix_in(value: &str, targets: &[std::path::PathBuf]) -> bool {
 
 #[cfg(target_os = "linux")]
 fn find_maxima_prefix_pids(wineserver_only: bool) -> Vec<i32> {
-    let maxima_prefix = match maxima::unix::wine::default_wine_prefix_dir() {
+    let maxima_prefix = match maxima::unix::wine::wine_prefix_dir() {
         Ok(p) => p,
         Err(_) => return Vec::new(),
     };
@@ -1421,10 +1395,10 @@ fn kill_maxima_prefix_leftovers() {
 
 /// Kill any wineservers that are attached to the Maxima wine prefix.
 /// Sends SIGTERM, waits briefly, then SIGKILL stragglers. Prefix-scoped:
-/// wineservers belonging to other Wine games are never touched.
-#[flutter_rust_bridge::frb(sync)]
+/// wineservers belonging to other Wine games are never touched. Async so
+/// the up-to-3s wait does not freeze the UI.
 #[cfg(target_os = "linux")]
-pub fn kill_maxima_wineserver() -> Result<u32, String> {
+pub async fn kill_maxima_wineserver() -> Result<u32, String> {
     let pids = find_maxima_wineserver_pids();
     if pids.is_empty() {
         info!("kill_maxima_wineserver: no wineservers attached to maxima prefix");
@@ -1443,7 +1417,7 @@ pub fn kill_maxima_wineserver() -> Result<u32, String> {
     }
     // Give wineserver up to ~3 seconds to exit gracefully, then SIGKILL.
     for _ in 0..30 {
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         if find_maxima_wineserver_pids().is_empty() {
             info!("kill_maxima_wineserver: all wineservers exited cleanly");
             kill_maxima_prefix_leftovers();
@@ -1468,9 +1442,8 @@ pub fn kill_maxima_wineserver() -> Result<u32, String> {
     Ok(pids.len() as u32)
 }
 
-#[flutter_rust_bridge::frb(sync)]
 #[cfg(not(target_os = "linux"))]
-pub fn kill_maxima_wineserver() -> Result<u32, String> {
+pub async fn kill_maxima_wineserver() -> Result<u32, String> {
     Err("wineserver kill is linux-only".to_string())
 }
 
@@ -1482,7 +1455,6 @@ fn purge_shader_cache_impl(
         Some(d) => d,
         None => {
             return ShaderCacheClearResult {
-                removed: false,
                 bytes_freed: 0,
                 path: None,
                 reason: "bf2_not_installed".to_string(),
@@ -1494,7 +1466,6 @@ fn purge_shader_cache_impl(
 
     if is_bf2_running() {
         return ShaderCacheClearResult {
-            removed: false,
             bytes_freed: 0,
             path: Some(cache_path_string),
             reason: "bf2_running".to_string(),
@@ -1507,27 +1478,23 @@ fn purge_shader_cache_impl(
 
     match std::fs::remove_file(&cache_path) {
         Ok(()) => ShaderCacheClearResult {
-            removed: true,
             bytes_freed: bytes,
             path: Some(cache_path_string),
             reason: "removed".to_string(),
         },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => ShaderCacheClearResult {
-            removed: false,
             bytes_freed: 0,
             path: Some(cache_path_string),
             reason: "not_present".to_string(),
         },
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
             ShaderCacheClearResult {
-                removed: false,
                 bytes_freed: 0,
                 path: Some(cache_path_string),
                 reason: "permission_denied".to_string(),
             }
         }
         Err(e) => ShaderCacheClearResult {
-            removed: false,
             bytes_freed: 0,
             path: Some(cache_path_string),
             reason: format!("io_error: {}", e),
@@ -1591,78 +1558,6 @@ pub fn clear_bf2_shader_cache(
     _game_exe_path_override: Option<String>,
 ) -> Result<ShaderCacheClearResult, String> {
     Err("shader cache clear is linux-only".to_string())
-}
-
-/// Result of a Wine prefix reset attempt. `reason` is one of "moved",
-/// "wineserver_busy", "not_present".
-pub struct PrefixResetResult {
-    pub reason: String,
-    pub backup_path: Option<String>,
-}
-
-// DISABLED 2026-08-13. Kept for reference, no UI path reaches it: the dialog
-// button was removed after the first user test. Two problems, both real:
-//
-// 1. `~/.local/share/maxima/wine/prefix` is usually a SYMLINK into
-//    <SteamLibrary>/steamapps/compatdata/1237950/pfx. canonicalize() resolves
-//    it, so the code below renames the TARGET and leaves the symlink dangling.
-// 2. The bigger one: on Linux a prefix reset also destroys game detection.
-//    Maxima's OwnedOffer::is_installed() resolves install_check_override
-//    through the Wine registry INSIDE the prefix, and the
-//    `EA Games\STAR WARS Battlefront II\Install Dir` key is written by
-//    linux_setup.rs by patching system.reg, which needs an existing prefix.
-//    A fresh prefix therefore means "GAME NOT FOUND" until Steam-Proton has
-//    rebuilt it once.
-//
-// Anyone reviving this has to carry system.reg/user.reg/userdef.reg over, or
-// rerun the setup right after the move. Do not wire it back to a button
-// without a reproducible case of a genuinely dead prefix to test against.
-#[flutter_rust_bridge::frb(sync)]
-#[cfg(target_os = "linux")]
-pub fn reset_wine_prefix() -> Result<PrefixResetResult, String> {
-    if is_maxima_wineserver_alive() {
-        return Ok(PrefixResetResult {
-            reason: "wineserver_busy".to_string(),
-            backup_path: None,
-        });
-    }
-
-    let prefix = maxima::unix::wine::default_wine_prefix_dir().map_err(|e| e.to_string())?;
-    let real = std::fs::canonicalize(&prefix).unwrap_or(prefix);
-    if !real.is_dir() {
-        return Ok(PrefixResetResult {
-            reason: "not_present".to_string(),
-            backup_path: None,
-        });
-    }
-
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let backup = real.with_file_name(format!(
-        "{}.kyber-backup-{}",
-        real.file_name().and_then(|n| n.to_str()).unwrap_or("pfx"),
-        stamp
-    ));
-
-    std::fs::rename(&real, &backup)
-        .map_err(|e| format!("Could not move the prefix aside: {}", e))?;
-    info!(
-        "Wine prefix reset: moved {} to {}",
-        real.display(),
-        backup.display()
-    );
-    Ok(PrefixResetResult {
-        reason: "moved".to_string(),
-        backup_path: Some(backup.to_string_lossy().to_string()),
-    })
-}
-
-#[flutter_rust_bridge::frb(sync)]
-#[cfg(not(target_os = "linux"))]
-pub fn reset_wine_prefix() -> Result<PrefixResetResult, String> {
-    Err("prefix reset is linux-only".to_string())
 }
 
 flutter_logger::flutter_logger_init!(LevelFilter::Debug);

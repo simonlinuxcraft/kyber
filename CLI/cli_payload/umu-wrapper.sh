@@ -164,6 +164,13 @@ echo "[umu-wrapper] PROTON_DIR=$KYBER_RESOLVED_PROTON_DIR" >&2
 # Host wine64 talks to BF2's wineserver via the shared WINEPREFIX
 # socket no matter which pressure-vessel BF2 sits in, and the inject
 # itself goes through wineserver, so we don't need BF2's PID namespace.
+# maxima-lib passes its WINEPREFIX (follows XDG_DATA_HOME); a direct call
+# falls back to the default location.
+_kyber_prefix="${WINEPREFIX:-$HOME/.local/share/maxima/wine/prefix}"
+_kyber_wine_env() {
+  export WINEPREFIX="$_kyber_prefix" WINEDEBUG="fixme-all" WINEFSYNC=1 WINEESYNC=1
+}
+
 case "$1" in
   *wine-helper.exe)
     # MAXIMA-LINUX-PORT-MOD 2026-05-24: use resolved proton dir (custom or
@@ -181,10 +188,7 @@ case "$1" in
       exit 1
     fi
     LIB_PATHS=$(_kyber_resolve_lib_paths "$PROTON_DIR")
-    export WINEPREFIX="$HOME/.local/share/maxima/wine/prefix"
-    export WINEDEBUG="fixme-all"
-    export WINEFSYNC=1
-    export WINEESYNC=1
+    _kyber_wine_env
     if [ -n "$LIB_PATHS" ]; then
       export LD_LIBRARY_PATH="$LIB_PATHS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     fi
@@ -206,10 +210,7 @@ case "$1" in
     if [ "$_kyber_is_deck" = 1 ]; then
       if [ -n "$_reg_wine_bin" ]; then
         _reg_libs=$(_kyber_resolve_lib_paths "$KYBER_RESOLVED_PROTON_DIR")
-        export WINEPREFIX="$HOME/.local/share/maxima/wine/prefix"
-        export WINEDEBUG="fixme-all"
-        export WINEFSYNC=1
-        export WINEESYNC=1
+        _kyber_wine_env
         if [ -n "$_reg_libs" ]; then
           export LD_LIBRARY_PATH="$_reg_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         fi
@@ -256,7 +257,7 @@ case "$1" in
     if [ -n "$WINE_BIN" ]; then
       LIB_PATHS=$(_kyber_resolve_lib_paths "$PROTON_DIR")
       _kyber_ld="${LIB_PATHS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-      WINEPREFIX="$HOME/.local/share/maxima/wine/prefix" \
+      WINEPREFIX="$_kyber_prefix" \
       WINEDEBUG="fixme-all" \
       WINEFSYNC=1 WINEESYNC=1 \
       LD_LIBRARY_PATH="$_kyber_ld" \
@@ -271,7 +272,7 @@ case "$1" in
       # at Win32 process start to seed PEB env, so writing KYBER_HIDE_CONSOLE
       # there is the only path that reaches Kyber.dll's std::getenv check
       # (Kyber/Module/Source/Core/Program.cpp:139).
-      WINEPREFIX="$HOME/.local/share/maxima/wine/prefix" \
+      WINEPREFIX="$_kyber_prefix" \
       WINEDEBUG="fixme-all" \
       WINEFSYNC=1 WINEESYNC=1 \
       LD_LIBRARY_PATH="$_kyber_ld" \

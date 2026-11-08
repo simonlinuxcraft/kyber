@@ -90,10 +90,6 @@ set_target_properties(${BINARY_NAME}
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
 # directory.
-# This must be set BEFORE including generated_plugins.cmake - some plugins
-# (e.g. flutter_js) overwrite CMAKE_INSTALL_PREFIX with FORCE in their own
-# CMakeLists, which would otherwise route the app bundle into the plugin's
-# binary directory.
 set(BUILD_BUNDLE_DIR "${PROJECT_BINARY_DIR}/bundle")
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}" CACHE PATH "..." FORCE)

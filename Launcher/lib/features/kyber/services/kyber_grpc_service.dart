@@ -149,9 +149,8 @@ class KyberGRPCServer {
     }
   }
 
-  Future<void> waitForDllConnect({
-    Duration timeout = const Duration(seconds: 12),
-  }) async {
+  Future<void> waitForDllConnect() async {
+    const timeout = Duration(seconds: 12);
     // Pin the completer: setInitializeRequest() can swap _dllConnected for a
     // fresh one, and the grace path below must keep waiting on the same one.
     final completer = _dllConnected;

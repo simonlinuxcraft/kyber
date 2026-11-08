@@ -64,14 +64,18 @@ class _MaximaInjectFailureDialogState extends State<MaximaInjectFailureDialog> {
       );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
-      _logger.warning('Retry FFI launch failed', e);
-      if (!mounted) return;
-      final msg = e is AnyhowException ? e.message : e.toString();
-      setState(() {
-        _busy = false;
-        _statusLine = 'Retry failed: $msg';
-      });
+      _fail('Retry', e);
     }
+  }
+
+  void _fail(String what, Object e) {
+    _logger.warning('$what launch failed', e);
+    if (!mounted) return;
+    final msg = e is AnyhowException ? e.message : e.toString();
+    setState(() {
+      _busy = false;
+      _statusLine = '$what failed: $msg';
+    });
   }
 
   Future<void> _launchViaCli() async {
@@ -96,13 +100,7 @@ class _MaximaInjectFailureDialogState extends State<MaximaInjectFailureDialog> {
       );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
-      _logger.warning('CLI launch failed', e);
-      if (!mounted) return;
-      final msg = e is AnyhowException ? e.message : e.toString();
-      setState(() {
-        _busy = false;
-        _statusLine = 'CLI launch failed: $msg';
-      });
+      _fail('CLI launch', e);
     }
   }
 

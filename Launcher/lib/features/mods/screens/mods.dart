@@ -776,7 +776,7 @@ String _modCount(int n) => n == 1 ? '1 mod' : '$n mods';
 String _updateCount(int n) => n == 1 ? '1 mod update' : '$n mod updates';
 
 /// Opens the Better Sabers manager for the whole mod list, without going
-/// through a collection first. Only shown when the plugin is installed.
+/// through a collection first. Without the plugin it explains where it goes.
 class _SaberManagerButton extends StatefulWidget {
   @override
   State<_SaberManagerButton> createState() => _SaberManagerButtonState();

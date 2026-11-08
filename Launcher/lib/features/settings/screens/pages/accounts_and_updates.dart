@@ -25,6 +25,7 @@ import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/main.dart';
 import 'package:kyber_launcher/shared/ui/ui.dart';
+import 'package:kyber_launcher/features/maxima/helper/maxima_helper.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
@@ -106,21 +107,7 @@ class AccountsAndUpdates extends StatelessWidget {
                   title: 'Logout',
                   text: 'EA Logout',
                   onClick: () async {
-                    // MAXIMA-LINUX-PORT-MOD: original used %APPDATA% which is
-                    // null on Linux and made File.delete() throw, aborting the
-                    // entire callback. Build the platform-correct path and
-                    // guard the delete with existsSync.
-                    final home = Platform.environment['HOME'] ?? '';
-                    final appdata = Platform.environment['APPDATA'] ?? '';
-                    final authPath = Platform.isLinux
-                        ? '$home/.local/share/maxima/auth.toml'
-                        : Platform.isMacOS
-                        ? '$home/Library/Application Support/maxima/auth.toml'
-                        : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
-                    final authFile = File(authPath);
-                    if (authFile.existsSync()) {
-                      await authFile.delete();
-                    }
+                    MaximaHelper.deleteAuthFile();
                     await launchUrlString(
                       'https://accounts.ea.com/connect/logout?client_id=EADOTCOM-WEB-SERVER&redirect_uri=https://ea.com',
                     );
@@ -356,19 +343,7 @@ class AccountsAndUpdates extends StatelessWidget {
                 title: 'Logout',
                 text: 'EA Logout',
                 onClick: () async {
-                  // MAXIMA-LINUX-PORT-MOD: same as the other EA Logout button
-                  // higher up in this file - see comment there.
-                  final home = Platform.environment['HOME'] ?? '';
-                  final appdata = Platform.environment['APPDATA'] ?? '';
-                  final authPath = Platform.isLinux
-                      ? '$home/.local/share/maxima/auth.toml'
-                      : Platform.isMacOS
-                      ? '$home/Library/Application Support/maxima/auth.toml'
-                      : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
-                  final authFile = File(authPath);
-                  if (authFile.existsSync()) {
-                    await authFile.delete();
-                  }
+                  MaximaHelper.deleteAuthFile();
                   await launchUrlString(
                     'https://accounts.ea.com/connect/logout?client_id=EADOTCOM-WEB-SERVER&redirect_uri=https://ea.com',
                   );

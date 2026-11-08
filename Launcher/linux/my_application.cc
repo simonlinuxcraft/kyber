@@ -41,7 +41,7 @@ static gchar* locate_bundled_icon() {
       exe_dir,
       NULL,
   };
-  const gchar* names[] = {"kyber-linux.png", "kyber-icon.png", NULL};
+  const gchar* names[] = {"kyber-linux.png", NULL};
 
   gchar* found = NULL;
   for (int i = 0; candidates_dirs[i] != NULL && found == NULL; ++i) {

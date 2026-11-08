@@ -8,11 +8,17 @@ import 'package:kyber_launcher/features/mods/services/mod_update_service.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
+  late Directory root;
+
+  setUp(() async {
+    root = await Directory.systemTemp.createTemp('kyber-post-processor.');
+  });
+
+  tearDown(() => root.delete(recursive: true));
+
   // The post processor runs in the downloader isolate, so a failed update has
   // to come back through onError; a toast from there never shows.
   test('a failed mod update is reported through onError', () async {
-    final root = await Directory.systemTemp.createTemp('kyber-update-fail.');
-    addTearDown(() => root.delete(recursive: true));
     await File('test/fixtures/mod.7z').copy(p.join(root.path, 'update.7z'));
 
     final errors = <String>[];
@@ -45,8 +51,6 @@ void main() {
   test(
     'a mod update replaces its old download and keeps Nexus provenance',
     () async {
-      final root = await Directory.systemTemp.createTemp('kyber-mod-update.');
-      addTearDown(() => root.delete(recursive: true));
 
       final oldDir = Directory(p.join(root.path, 'old-download'));
       await oldDir.create();
@@ -82,8 +86,6 @@ void main() {
   );
 
   test('an update does not carry over a renamed mod file', () async {
-    final root = await Directory.systemTemp.createTemp('kyber-mod-rename.');
-    addTearDown(() => root.delete(recursive: true));
 
     final oldDir = Directory(p.join(root.path, 'old-download'));
     await oldDir.create();
@@ -116,8 +118,6 @@ void main() {
     });
 
     test('moves into a folder named after its ids', () async {
-      final root = await Directory.systemTemp.createTemp('kyber-nexus.');
-      addTearDown(() => root.delete(recursive: true));
       final mod = File(p.join(root.path, 'sample.fbmod'));
       final readme = File(p.join(root.path, 'readme.txt'));
       await mod.writeAsString('mod');
@@ -141,8 +141,6 @@ void main() {
     });
 
     test('downloaded again drops the loose copy', () async {
-      final root = await Directory.systemTemp.createTemp('kyber-nexus-again.');
-      addTearDown(() => root.delete(recursive: true));
       final dir = Directory(p.join(root.path, 'nexus-14257-1234'));
       await dir.create();
       await File(p.join(dir.path, 'sample.fbmod')).writeAsString('first');
@@ -163,8 +161,6 @@ void main() {
     });
 
     test('without a mod file stays where it is', () async {
-      final root = await Directory.systemTemp.createTemp('kyber-nexus-plain.');
-      addTearDown(() => root.delete(recursive: true));
       final readme = File(p.join(root.path, 'readme.txt'));
       await readme.writeAsString('read me');
 
@@ -183,8 +179,6 @@ void main() {
   });
 
   test('other downloads are left in place and never throw', () async {
-    final root = await Directory.systemTemp.createTemp('kyber-nexus-other.');
-    addTearDown(() => root.delete(recursive: true));
     final mod = File(p.join(root.path, 'sample.fbmod'));
     await mod.writeAsString('mod');
 
@@ -207,8 +201,6 @@ void main() {
         '{"1":"Maul Shadow Lord Sabers","2":"1.1"}',
         '',
       ]) {
-        final root = await Directory.systemTemp.createTemp('kyber-nexus-name.');
-        addTearDown(() => root.delete(recursive: true));
         final mod = File(p.join(root.path, 'Maul.fbmod'));
         await mod.writeAsString('mod');
 
@@ -230,8 +222,6 @@ void main() {
   );
 
   test('archives without Nexus naming and mod updates stay put', () async {
-    final root = await Directory.systemTemp.createTemp('kyber-nexus-loose.');
-    addTearDown(() => root.delete(recursive: true));
     final mod = File(p.join(root.path, 'sample.fbmod'));
     await mod.writeAsString('mod');
 
@@ -252,8 +242,6 @@ void main() {
   });
 
   test('a partial update keeps the files it did not ship', () async {
-    final root = await Directory.systemTemp.createTemp('kyber-mod-partial.');
-    addTearDown(() => root.delete(recursive: true));
 
     final oldDir = Directory(p.join(root.path, 'old-download'));
     await Directory(p.join(oldDir.path, 'textures')).create(recursive: true);

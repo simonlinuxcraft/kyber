@@ -3,12 +3,9 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:kyber_launcher/core/config/colors.dart';
+import 'package:kyber_launcher/core/services/app_settings.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/shared/ui/ui.dart';
-
-// Push-to-talk keycodes go over an int32 proto field. Non-printable keys have
-// a LogicalKeyboardKey.keyId above this limit and cannot be used.
-const int _kMaxInt32 = 0x7FFFFFFF;
 
 class VoipKeyResponse {
   VoipKeyResponse({
@@ -78,7 +75,7 @@ class _CharKeyPickerState extends State<CharKeyPicker> {
       return KeyEventResult.handled;
     }
 
-    if (e.logicalKey.keyId > _kMaxInt32) {
+    if (e.logicalKey.keyId > kMaxInt32) {
       setState(() => _hint = 'Key not supported, try another');
       return KeyEventResult.handled;
     }
@@ -116,7 +113,7 @@ class _CharKeyPickerState extends State<CharKeyPicker> {
       return;
     }
 
-    if (e.logicalKey.keyId > _kMaxInt32) {
+    if (e.logicalKey.keyId > kMaxInt32) {
       setState(() => _hint = 'Key not supported, try another');
       return;
     }

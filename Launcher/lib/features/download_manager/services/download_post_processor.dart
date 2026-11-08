@@ -116,11 +116,8 @@ class DownloadPostProcessor {
       throw const FileSystemException('Installed mod update source not found');
     }
 
-    final files = extractedFiles
-        .map(File.new)
-        .where((file) => file.existsSync())
-        .toList();
-    if (!files.any((file) => p.extension(file.path) == '.fbmod')) {
+    final files = _existingFiles(extractedFiles);
+    if (!_containsMod(files)) {
       throw const FileSystemException('Downloaded update contains no mod file');
     }
 
@@ -197,11 +194,8 @@ class DownloadPostProcessor {
         folder = name;
       }
 
-      final files = extractedFiles
-          .map(File.new)
-          .where((file) => file.existsSync())
-          .toList();
-      if (!files.any((file) => p.extension(file.path) == '.fbmod')) return;
+      final files = _existingFiles(extractedFiles);
+      if (!_containsMod(files)) return;
 
       final dir = Directory(p.join(basePath, folder));
       await dir.create();
@@ -217,4 +211,10 @@ class DownloadPostProcessor {
       _logger.warning('Nexus download left in the mods folder root', e, s);
     }
   }
+
+  static List<File> _existingFiles(List<String> paths) =>
+      paths.map(File.new).where((file) => file.existsSync()).toList();
+
+  static bool _containsMod(List<File> files) =>
+      files.any((file) => p.extension(file.path) == '.fbmod');
 }

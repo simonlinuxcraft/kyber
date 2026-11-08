@@ -49,12 +49,8 @@ class NexusDownloadService {
       return (downloadLink.toString(), filename, null);
     }
 
-    // Linux: bypass the HeadlessInAppWebView trick entirely. The plugin is
-    // a no-op stub (no WPE WebKit on Ubuntu 24.04+), so the
-    // GenerateDownloadUrl request goes directly through dio with the
-    // user's Nexus API key as authentication. Same endpoint and body as
-    // the WebView path, just authenticated with `apikey:` header instead
-    // of session cookies. Works for both free and premium accounts.
+    // Linux: the WebView plugin is a stub, so the download goes through the
+    // browser and comes back as an nxm:// link, see _getNexusDownloadLinux.
     if (Platform.isLinux) {
       return _getNexusDownloadLinux(downloadUrl, tries: tries);
     }

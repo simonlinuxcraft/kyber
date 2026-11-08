@@ -21,6 +21,21 @@ class ModSupport extends StatefulWidget {
 }
 
 class _ModSupportState extends State<ModSupport> {
+  void _restartHint(BuildContext context, String text) {
+    displayInfoBar(
+      context,
+      builder: (_, close) => InfoBar(
+        title: const Text('Restart required'),
+        content: Text(text),
+        severity: InfoBarSeverity.info,
+        action: IconButton(
+          icon: const Icon(FluentIcons.clear),
+          onPressed: close,
+        ),
+      ),
+    );
+  }
+
   // KYBER-LINUX-PORT-MOD: what the next launch will actually run. The release
   // tag is read from the build, not from its directory name, because those can
   // disagree: a compatibilitytools.d entry named GE-Proton10-34 turned out to be
@@ -99,19 +114,9 @@ class _ModSupportState extends State<ModSupport> {
                   onChange: (bool value) {
                     Preferences.general.nativeWayland = value;
                     writeWaylandBackendPref(value);
-                    displayInfoBar(
+                    _restartHint(
                       context,
-                      builder: (_, close) => InfoBar(
-                        title: const Text('Restart required'),
-                        content: const Text(
-                          'Native Wayland takes effect after you restart Kyber.',
-                        ),
-                        severity: InfoBarSeverity.info,
-                        action: IconButton(
-                          icon: const Icon(FluentIcons.clear),
-                          onPressed: close,
-                        ),
-                      ),
+                      'Native Wayland takes effect after you restart Kyber.',
                     );
                   },
                 ),
@@ -127,24 +132,14 @@ class _ModSupportState extends State<ModSupport> {
                   onChange: (bool value) {
                     Preferences.general.skiaRenderer = value;
                     writeRendererPref(value);
-                    displayInfoBar(
+                    _restartHint(
                       context,
-                      builder: (_, close) => InfoBar(
-                        title: const Text('Restart required'),
-                        content: const Text(
-                          'Turn this on if the interface stutters. It draws '
-                          'the launcher a different way that is usually '
-                          'smoother on integrated graphics, in virtual '
-                          'machines and on older cards, and usually slower on '
-                          'a dedicated graphics card. If nothing improves, '
-                          'turn it back off. Restart Kyber to apply.',
-                        ),
-                        severity: InfoBarSeverity.info,
-                        action: IconButton(
-                          icon: const Icon(FluentIcons.clear),
-                          onPressed: close,
-                        ),
-                      ),
+                      'Turn this on if the interface stutters. It draws '
+                      'the launcher a different way that is usually '
+                      'smoother on integrated graphics, in virtual '
+                      'machines and on older cards, and usually slower on '
+                      'a dedicated graphics card. If nothing improves, '
+                      'turn it back off. Restart Kyber to apply.',
                     );
                   },
                 ),

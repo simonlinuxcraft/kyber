@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber_launcher/core/core.dart';
 import 'package:kyber_launcher/shared/ui/ui.dart';
+import 'package:kyber_launcher/features/maxima/helper/maxima_helper.dart';
 
 class MaximaExpiredSessionDialog extends StatefulWidget {
   const MaximaExpiredSessionDialog({super.key});
@@ -35,21 +36,7 @@ class _MaximaExpiredSessionDialogState
         KyberButton(
           text: 'Exit Launcher',
           onPressed: () async {
-            // MAXIMA-LINUX-PORT-MOD: original used a hardcoded %APPDATA% path
-            // which on Linux resolves to "null\..."; File.delete() then threw
-            // (no such file) and the restart below never ran. Use the
-            // platform-correct path with an existence check, like logout().
-            final home = Platform.environment['HOME'] ?? '';
-            final appdata = Platform.environment['APPDATA'] ?? '';
-            final authPath = Platform.isLinux
-                ? '$home/.local/share/maxima/auth.toml'
-                : Platform.isMacOS
-                ? '$home/Library/Application Support/maxima/auth.toml'
-                : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
-            final authFile = File(authPath);
-            if (authFile.existsSync()) {
-              authFile.deleteSync();
-            }
+            MaximaHelper.deleteAuthFile();
 
             final executable = Platform.resolvedExecutable;
             final args = <String>['--restart'];

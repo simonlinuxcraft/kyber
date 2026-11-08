@@ -28,6 +28,21 @@ import 'package:path/path.dart' as p;
 class MaximaHelper {
   static final Logger _logger = Logger('maxima_helper');
 
+  /// Deletes maxima's stored EA session. Upstream builds the path from
+  /// %APPDATA%, which is null on Linux and macOS, so the logout and the
+  /// expired-session recovery silently kept the old token.
+  static void deleteAuthFile() {
+    final home = Platform.environment['HOME'] ?? '';
+    final appdata = Platform.environment['APPDATA'] ?? '';
+    final authPath = Platform.isLinux
+        ? '$home/.local/share/maxima/auth.toml'
+        : Platform.isMacOS
+        ? '$home/Library/Application Support/maxima/auth.toml'
+        : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
+    final file = File(authPath);
+    if (file.existsSync()) file.deleteSync();
+  }
+
   static Future<void> requestGameLaunch(
     BuildContext context, {
     ModCollectionMetaData? modCollection,
@@ -177,13 +192,6 @@ class MaximaHelper {
   }) async {
     initializeRequest ??= InitializeRequest();
 
-    // Root cause identified (2026-05-07): the language-entitlement error on
-    // the FFI path was caused by MAXIMA_WINE_COMMAND not being set, so
-    // bootstrap fell back to raw umu-run without the umu-wrapper.sh locale
-    // fix. linux_setup.rs now sets MAXIMA_WINE_COMMAND (and all STEAM env
-    // vars) from init_app() before any tokio thread starts. FFI path is
-    // therefore used on all platforms.
-
     final path = Platform.environment['PATH'];
 
     if (path == null) {
@@ -270,18 +278,16 @@ class MaximaHelper {
         if (initializeRequest.hasModData() &&
             initializeRequest.modData.basePath.startsWith('/'))
           initializeRequest.modData.basePath,
-      }..removeWhere((p) => p.isEmpty);
+      };
 
       // Never drop what the user or the AppImage already asked for.
       final existing =
           Platform.environment['PRESSURE_VESSEL_FILESYSTEMS_RW'] ?? '';
       if (existing.isNotEmpty) containerPaths.addAll(existing.split(':'));
 
-      if (containerPaths.isNotEmpty) {
-        final value = containerPaths.join(':');
-        ProcessEnv.set('PRESSURE_VESSEL_FILESYSTEMS_RW', value);
-        _logger.info('Exposing to the game container: $value');
-      }
+      final value = containerPaths.join(':');
+      ProcessEnv.set('PRESSURE_VESSEL_FILESYSTEMS_RW', value);
+      _logger.info('Exposing to the game container: $value');
     }
 
     if (Preferences.general.disableForceDX11) {
@@ -330,21 +336,7 @@ class MaximaHelper {
       throw const GamePidNotFoundException();
     }
 
-    if (sl.isRegistered<MaximaGameInstance>()) {
-      _logger.warning(
-        'ClientGRPCService was already registered, unregistering...',
-      );
-
-      try {
-        final stalePid = sl.get<MaximaGameInstance>().pid;
-        // On Linux the stale PID is a Wine PID and would hit a host process.
-        if (stalePid > 0 && !Platform.isLinux) {
-          Process.killPid(stalePid);
-        }
-      } catch (_) {}
-
-      sl.unregister<MaximaGameInstance>();
-    }
+    _dropStaleInstance();
 
     final instance = MaximaGameInstance(
       pid: gamePID,
@@ -407,9 +399,9 @@ class MaximaHelper {
       try {
         if (Platform.isLinux) {
           // gamePID is a Wine PID here; stopping the prefix is what ends BF2.
-          final stopped = maxima.killMaximaWineserver();
+          final stopped = await maxima.killMaximaWineserver();
           _logger.info('Stopped $stopped wineserver(s) after inject failure');
-        } else if (gamePID > 0) {
+        } else {
           Process.killPid(gamePID);
           _logger.info('Killed orphan BF2 PID $gamePID after inject failure');
         }
@@ -538,9 +530,6 @@ class MaximaHelper {
 
     try {
       final pid = await completer.future.timeout(const Duration(seconds: 180));
-      try {
-        tmpFile.deleteSync();
-      } catch (_) {}
 
       final instance = MaximaGameInstance(
         pid: pid,
@@ -549,25 +538,28 @@ class MaximaHelper {
         mods: mods ?? [],
       );
 
-      if (sl.isRegistered<MaximaGameInstance>()) {
-        try {
-          final stalePid = sl.get<MaximaGameInstance>().pid;
-          // On Linux the stale PID is a Wine PID and would hit a host process.
-          if (stalePid > 0 && !Platform.isLinux) Process.killPid(stalePid);
-        } catch (_) {}
-        sl.unregister<MaximaGameInstance>();
-      }
+      _dropStaleInstance();
 
       sl.registerSingleton<MaximaGameInstance>(instance);
       sl.get<MaximaInstanceService>().addInstance(instance);
 
       return instance;
-    } catch (e) {
+    } finally {
       try {
         tmpFile.deleteSync();
       } catch (_) {}
-      rethrow;
     }
+  }
+
+  static void _dropStaleInstance() {
+    if (!sl.isRegistered<MaximaGameInstance>()) return;
+    _logger.warning('ClientGRPCService was already registered, unregistering...');
+    try {
+      final stalePid = sl.get<MaximaGameInstance>().pid;
+      // On Linux the stale PID is a Wine PID and would hit a host process.
+      if (stalePid > 0 && !Platform.isLinux) Process.killPid(stalePid);
+    } catch (_) {}
+    sl.unregister<MaximaGameInstance>();
   }
 }
 

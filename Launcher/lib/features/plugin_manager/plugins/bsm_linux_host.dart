@@ -208,13 +208,11 @@ class BsmLinuxHost {
     );
   }
 
-  /// True from the first preparation step until the manager window closes.
-  ///
-  /// Guards more than the window itself: there are two entry points in the
-  /// UI, and the setup steps before the window all write to fixed paths in
-  /// the prefix. Two of them at once would download the runtime twice into
-  /// the same file and unpack the manager on top of itself.
-  static bool get isRunning => _running;
+  /// Set from the first preparation step until the manager window closes.
+  /// There are two entry points in the UI, and the setup steps before the
+  /// window all write to fixed paths in the prefix. Two of them at once would
+  /// download the runtime twice into the same file and unpack the manager on
+  /// top of itself.
   static bool _running = false;
 
   /// Runs the whole sequence under one lock: runtime, extraction, game path,
@@ -298,6 +296,11 @@ class BsmLinuxHost {
   }
 
   /// `/home/x/mods` becomes `Z:\home\x\mods`, which is how the prefix sees it.
+  static bool _isPackOf(FileSystemEntity f, String packName) {
+    final name = p.basename(f.path);
+    return name.startsWith('$packName.') && name.endsWith('.bsm.fbmod');
+  }
+
   static String toWindowsPath(String unixPath) =>
       'Z:${unixPath.replaceAll('/', r'\')}';
 
@@ -319,12 +322,10 @@ class BsmLinuxHost {
       if (!dir.existsSync()) continue;
       for (final entry in dir.listSync()) {
         if (entry is! File) continue;
-        final name = p.basename(entry.path);
-        if (!name.startsWith('$packName.') ||
-            !name.endsWith('.bsm.fbmod') ||
-            p.normalize(entry.path) == keep) {
+        if (!_isPackOf(entry, packName) || p.normalize(entry.path) == keep) {
           continue;
         }
+        final name = p.basename(entry.path);
         try {
           await entry.delete();
           removed.add(name);
@@ -405,11 +406,7 @@ class BsmLinuxHost {
     for (final temp in _packDirectories()) {
       if (!temp.existsSync()) continue;
       found.addAll(
-        temp.listSync().whereType<File>().where(
-              (f) =>
-                  p.basename(f.path).startsWith('$packName.') &&
-                  f.path.endsWith('.bsm.fbmod'),
-            ),
+        temp.listSync().whereType<File>().where((f) => _isPackOf(f, packName)),
       );
     }
     return found;

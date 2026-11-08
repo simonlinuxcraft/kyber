@@ -8,6 +8,7 @@ import 'package:kyber_launcher/gen/rust/api/maxima.dart';
 import 'package:kyber_launcher/shared/ui/buttons/button.dart';
 import 'package:kyber_launcher/shared/ui/dialog/kyber_dialog.dart';
 import 'package:kyber_launcher/shared/ui/elements/kyber_input.dart';
+import 'package:kyber_launcher/core/services/notification_service.dart';
 
 // Manual override for the Proton install used by BF2. Reached from the
 // Mod Configuration settings page. Only relevant on Linux; on Windows the
@@ -102,6 +103,8 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
   @override
   Widget build(BuildContext context) {
     final isLinux = Platform.isLinux;
+    final body =
+        FluentTheme.of(context).typography.body?.copyWith(color: kWhiteColor);
     return KyberContentDialog(
       constraints: const BoxConstraints(maxWidth: 760, maxHeight: 780),
       title: Text('Custom Proton Path (Experimental)'.toUpperCase()),
@@ -113,10 +116,7 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: Text(
                 'Custom Proton is only available on Linux builds.',
-                style: FluentTheme.of(context)
-                    .typography
-                    .body
-                    ?.copyWith(color: kWhiteColor),
+                style: body,
                 textAlign: TextAlign.center,
               ),
             )
@@ -152,10 +152,7 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
                       'a custom build only if you want to trade tested '
                       'stability for newer Wine + DXVK and accept that not '
                       'every build will launch cleanly.',
-                      style: FluentTheme.of(context)
-                          .typography
-                          .body
-                          ?.copyWith(color: kWhiteColor),
+                      style: body,
                     ),
                   ),
                 ],
@@ -168,10 +165,7 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
               'The path must point to a Proton directory containing wine64 '
               '(GE-Proton: files/bin/wine64, proton-cachyos: dist/bin/wine64). '
               'Takes effect at the next game launch.',
-              style: FluentTheme.of(context)
-                  .typography
-                  .body
-                  ?.copyWith(color: kWhiteColor),
+              style: body,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 18),
@@ -326,9 +320,7 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
             text: 'Save',
             onPressed: () async {
               final text = controller.text.trim();
-              if (text.isNotEmpty &&
-                  validation != null &&
-                  !validation!.valid) {
+              if (validation != null && !validation!.valid) {
                 _showError(
                   context,
                   validation!.error ?? 'Invalid proton path',
@@ -350,17 +342,10 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
   }
 
   void _showError(BuildContext context, String message) {
-    displayInfoBar(
-      context,
-      builder: (_, close) => InfoBar(
-        title: const Text('Custom Proton'),
-        content: Text(message),
-        severity: InfoBarSeverity.error,
-        action: IconButton(
-          icon: const Icon(FluentIcons.clear),
-          onPressed: close,
-        ),
-      ),
+    NotificationService.showNotification(
+      title: 'Custom Proton',
+      message: message,
+      severity: InfoBarSeverity.error,
     );
   }
 
@@ -414,45 +399,34 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
       );
       if (shouldKill != true) return false;
       if (!context.mounted) return false;
+      final int killed;
       try {
-        final killed = killMaximaWineserver();
-        try {
-          setCustomProtonPath(path: targetPath);
-          if (context.mounted) {
-            displayInfoBar(
-              context,
-              builder: (_, close) => InfoBar(
-                title: const Text('Custom Proton'),
-                content: Text(
-                  killed > 0
-                      ? 'Killed $killed stale wineserver process(es), '
-                          'Proton path applied.'
-                      : 'Proton path applied.',
-                ),
-                severity: InfoBarSeverity.success,
-                action: IconButton(
-                  icon: const Icon(FluentIcons.clear),
-                  onPressed: close,
-                ),
-              ),
-            );
-          }
-          return true;
-        } catch (retryErr) {
-          if (context.mounted) {
-            _showError(
-              context,
-              'Failed to $operationVerb after wineserver kill: $retryErr',
-            );
-          }
-          return false;
-        }
+        killed = await killMaximaWineserver();
       } catch (killErr) {
         if (context.mounted) {
           _showError(context, 'Failed to kill wineserver: $killErr');
         }
         return false;
       }
+      try {
+        setCustomProtonPath(path: targetPath);
+      } catch (retryErr) {
+        if (context.mounted) {
+          _showError(
+            context,
+            'Failed to $operationVerb after wineserver kill: $retryErr',
+          );
+        }
+        return false;
+      }
+      NotificationService.showNotification(
+        title: 'Custom Proton',
+        severity: InfoBarSeverity.success,
+        message: killed > 0
+            ? 'Killed $killed stale wineserver process(es), Proton path applied.'
+            : 'Proton path applied.',
+      );
+      return true;
     }
   }
 
@@ -532,17 +506,10 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
         severity = InfoBarSeverity.error;
         message = 'Shader cache clear failed: ${result.reason}';
     }
-    displayInfoBar(
-      context,
-      builder: (_, close) => InfoBar(
-        title: const Text('Shader cache'),
-        content: Text(message),
-        severity: severity,
-        action: IconButton(
-          icon: const Icon(FluentIcons.clear),
-          onPressed: close,
-        ),
-      ),
+    NotificationService.showNotification(
+      title: 'Shader cache',
+      message: message,
+      severity: severity,
     );
   }
 }

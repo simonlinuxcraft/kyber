@@ -22,6 +22,7 @@ import 'package:kyber_launcher/gen/rust/api/maxima.dart';
 import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/main.dart';
 import 'package:kyber_launcher/shared/ui/dialog/kyber_dialog.dart';
+import 'package:kyber_launcher/features/maxima/helper/maxima_helper.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -172,21 +173,7 @@ class MaximaCubit extends Cubit<MaximaState> {
   }
 
   Future<void> logout() async {
-    // MAXIMA-LINUX-PORT-MOD: original used a hardcoded Windows path with
-    // %APPDATA% which on Linux resolves to "null\..." and silently misses
-    // the actual auth file at ~/.local/share/maxima/auth.toml. Without the
-    // delete the user stays logged in even after the EA browser logout.
-    final home = Platform.environment['HOME'] ?? '';
-    final appdata = Platform.environment['APPDATA'] ?? '';
-    final authPath = Platform.isLinux
-        ? '$home/.local/share/maxima/auth.toml'
-        : Platform.isMacOS
-        ? '$home/Library/Application Support/maxima/auth.toml'
-        : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
-    final maximaAuthFile = File(authPath);
-    if (maximaAuthFile.existsSync()) {
-      maximaAuthFile.deleteSync();
-    }
+    MaximaHelper.deleteAuthFile();
 
     await launchUrlString(
       'https://accounts.ea.com/connect/logout?client_id=EADOTCOM-WEB-SERVER&redirect_uri=https://ea.com',
@@ -382,24 +369,9 @@ class MaximaCubit extends Cubit<MaximaState> {
           logger.severe('Invalid grant... Logging out');
           _loggingIn = false;
 
-          // MAXIMA-LINUX-PORT-MOD: original used a hardcoded Windows path
-          // with %UserProfile% which on Linux resolves to "null\..." and
-          // silently misses the actual auth file, leaving the stale token in
-          // place. The delete + retry recovery then never runs, so login keeps
-          // failing until the file is removed by hand. Use the platform-correct
-          // path, same as logout().
-          final home = Platform.environment['HOME'] ?? '';
-          final appdata = Platform.environment['APPDATA'] ?? '';
-          final authPath = Platform.isLinux
-              ? '$home/.local/share/maxima/auth.toml'
-              : Platform.isMacOS
-              ? '$home/Library/Application Support/maxima/auth.toml'
-              : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
-          final authFile = File(authPath);
-          if (authFile.existsSync()) {
-            authFile.deleteSync();
-            return requestLogin();
-          }
+          // MAXIMA-LINUX-PORT-MOD: drop the stale token and retry once.
+          MaximaHelper.deleteAuthFile();
+          return requestLogin();
           // No stale auth file to clear: surface the error instead of
           // falling through to the bare Future.error below, which would
           // leave the UI stuck on the loading spinner.

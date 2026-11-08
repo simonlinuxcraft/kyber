@@ -41,27 +41,19 @@ class ProtocolHelper {
     await protocolHandler.register(Strings.protocolName);
     await protocolHandler.register('nxm');
 
-    // The protocol_handler plugin has no Linux backend (only
-    // Android/iOS/macOS/Windows), so both register() calls above are no-ops
-    // there. We register the schemes ourselves via xdg-mime + a small
-    // bash bridge that drops the URL into a per-user response file.
+    // Both register() calls are no-ops on Linux, see the NXM bridge below.
     if (Platform.isLinux) {
       await _registerLinuxNxmHandler();
     }
   }
 
   static Future<void> initialize() async {
-    // On Linux the bash bridge can't send IPC to the running launcher
-    // (the protocol_handler plugin has no Linux MethodChannel). Start
-    // the inotify watcher first so it's running before any nxm:// click
-    // could arrive.
+    // Start the watcher first so it is running before any nxm:// click.
     if (Platform.isLinux) {
       await _startLinuxNxmWatcher();
     }
 
-    // protocolHandler.getInitialUrl() throws MissingPluginException on
-    // Linux because there's no Linux backend - guard the call so the
-    // exception doesn't tear down the rest of initialize().
+    // Throws MissingPluginException on Linux.
     String? initialUrl;
     try {
       initialUrl = await protocolHandler.getInitialUrl();

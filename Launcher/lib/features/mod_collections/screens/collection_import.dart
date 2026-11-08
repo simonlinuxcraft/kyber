@@ -75,15 +75,11 @@ class _CollectionImportState extends State<CollectionImport> {
         final mod = collection.mods[i];
 
         if (ModHelper.isInstalled(mod.name, mod.version)) {
-          final localMod = sl
-              .get<ModService>()
-              .mods
-              .where(
+          final localMod = sl.get<ModService>().mods.firstWhereOrNull(
                 (m) =>
                     m.details.name == mod.name &&
                     m.details.version == mod.version,
-              )
-              .firstOrNull;
+              );
           if (localMod != null) {
             collection.mods[i] = mod.copyWith(filename: localMod.filename);
             continue;

@@ -46,9 +46,6 @@ class ModUpdateService with ChangeNotifier {
   bool _checking = false;
   bool get isChecking => _checking;
 
-  DateTime? _lastCheck;
-  DateTime? get lastCheck => _lastCheck;
-
   int _failed = 0;
   int _checked = 0;
 
@@ -111,7 +108,6 @@ class ModUpdateService with ChangeNotifier {
               fileId: successor.fileId,
               name: successor.name,
               version: successor.modVersion,
-              uploaded: successor.uploadedTime,
               uploadedTimestamp: successor.uploadedTimestamp,
             );
             for (final mod in entry.value) {
@@ -130,21 +126,12 @@ class ModUpdateService with ChangeNotifier {
       _logger.warning('Update check could not start: $e');
     } finally {
       _checking = false;
-      _lastCheck = DateTime.now();
       _logger.info(
         'Checked $_checked identifiable downloads, $count have updates, '
         '$_failed failed',
       );
       notifyListeners();
     }
-  }
-
-  void clear() {
-    _updates.clear();
-    _failed = 0;
-    _checked = 0;
-    _lastCheck = null;
-    notifyListeners();
   }
 
   /// Drops updates for mods that are gone, usually because the update itself
@@ -298,7 +285,6 @@ class ModUpdate {
     required this.fileId,
     required this.name,
     required this.version,
-    required this.uploaded,
     required this.uploadedTimestamp,
   });
 
@@ -306,7 +292,6 @@ class ModUpdate {
   final int fileId;
   final String name;
   final String version;
-  final DateTime uploaded;
   final int uploadedTimestamp;
 
   String get nexusUrl =>

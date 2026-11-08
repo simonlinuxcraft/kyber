@@ -79,7 +79,7 @@ class CollectionArchiveService {
       }
 
       for (final file in unpacked) {
-        if (identical(file, definition) || file.path == definition.path) {
+        if (identical(file, definition)) {
           continue;
         }
         final name = p.basename(file.path);

@@ -58,8 +58,11 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
   String? lastEvent;
   int? protonDownloadedBytes;
   int? protonTotalBytes;
-  // KYBER-LINUX-PORT-MOD: launch step reported by Rust, e.g. registry 3/13.
+  // KYBER-LINUX-PORT-MOD: launch step reported by Rust, e.g. registry 3/13,
+  // and a running clock so a long first launch does not look frozen.
   String step = '';
+  final _elapsed = Stopwatch()..start();
+  Timer? _clock;
 
   @override
   void initState() {
@@ -127,15 +130,17 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
       // Idle ticks (totalBytes == 0) only carry the step; the stream
       // self-closes once the subscription is cancelled below / on dispose.
       _protonProgress = getProtonDownloadProgress().listen((p) {
-        if (!mounted || (p.totalBytes == BigInt.zero && p.step == step)) {
+        final downloading = p.totalBytes != BigInt.zero;
+        if (!mounted ||
+            (!downloading && protonTotalBytes == null && p.step == step)) {
           return;
         }
         setState(() {
           step = p.step;
-          if (p.totalBytes != BigInt.zero) {
-            protonDownloadedBytes = p.downloadedBytes.toInt();
-            protonTotalBytes = p.totalBytes.toInt();
-          }
+          protonDownloadedBytes = downloading
+              ? p.downloadedBytes.toInt()
+              : null;
+          protonTotalBytes = downloading ? p.totalBytes.toInt() : null;
         });
       }, cancelOnError: true);
 
@@ -153,6 +158,8 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
             if (!mounted) {
               return;
             }
+            // The handshake is done, the game is still loading.
+            setState(() => step = '');
 
             _gameEvents = value.eventStream.listen(
               (e) {
@@ -407,6 +414,9 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
             );
           });
     });
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
     super.initState();
   }
 
@@ -415,11 +425,14 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
     _gameEvents?.cancel();
     _protonProgress?.cancel();
     _gameStatusTimer?.cancel();
+    _clock?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final secs = _elapsed.elapsed.inSeconds;
+    final clock = '${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}';
     return KyberContentDialog(
       title: Text('GAME LAUNCHING'.toUpperCase()),
       constraints: const BoxConstraints(maxWidth: 500, maxHeight: 300),
@@ -436,16 +449,20 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
               const SizedBox(
                 width: 15,
               ),
-              Text(
-                updating
-                    ? 'Updating Kyber Module...'
-                    : protonTotalBytes != null
-                    ? 'Downloading Proton runtime...'
-                    : step.isNotEmpty
-                    ? '$step...'
-                    : 'Starting Game...',
-                style: FluentTheme.of(context).typography.bodyLarge,
+              Flexible(
+                child: Text(
+                  updating
+                      ? 'Updating Kyber Module...'
+                      : step.isNotEmpty
+                      ? '$step...'
+                      : protonTotalBytes != null
+                      ? 'Downloading Proton runtime...'
+                      : 'Starting Game...',
+                  style: FluentTheme.of(context).typography.bodyLarge,
+                ),
               ),
+              const SizedBox(width: 10),
+              Text(clock, style: FluentTheme.of(context).typography.caption),
             ],
           ),
           const SizedBox(
@@ -453,7 +470,11 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
           ),
           Text(
             protonTotalBytes != null
-                ? 'Downloading the Proton runtime (~${(protonTotalBytes! / 1048576).round()} MB). This can take a few minutes on a slow connection; the download resumes if interrupted.'
+                ? 'This can take a few minutes on a slow connection.'
+                : step.contains('first launch')
+                ? 'This only happens once and can take a minute or two.'
+                : step.isNotEmpty
+                ? 'Please wait while the game is starting.'
                 : 'Please wait while the game is starting. This may take a few seconds.',
             style: FluentTheme.of(context).typography.body?.copyWith(
               color: kWhiteColor,

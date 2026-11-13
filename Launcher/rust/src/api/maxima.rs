@@ -285,9 +285,9 @@ pub struct ProtonDownloadProgress {
 
 /// Streams GE-Proton download progress to the launcher UI. Polls the
 /// maxima-lib download slot ~4x/sec and forwards it. Emits an idle tick
-/// (total_bytes == 0) when nothing is downloading; the Dart side ignores
-/// those and relies on them only to notice the subscription was cancelled
-/// (sink.add then errors, ending the loop). The caller (start-game dialog)
+/// (total_bytes == 0) when nothing is downloading; the Dart side reads only
+/// the step from those, and they let the loop notice the subscription was
+/// cancelled (sink.add then errors, ending the loop). The caller (start-game dialog)
 /// cancels the subscription once start_game resolves, so this never leaks.
 pub async fn get_proton_download_progress(sink: StreamSink<ProtonDownloadProgress>) {
     // A new dialog must not show the last launch's final step.

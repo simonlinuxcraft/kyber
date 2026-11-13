@@ -11,6 +11,7 @@ import 'package:kyber_launcher/core/routing/app_router.dart';
 import 'package:kyber_launcher/core/services/module_version_service.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/kyber/dialogs/kyber_anti_virus_exclusion.dart';
+import 'package:kyber_launcher/features/maxima/dialogs/custom_proton_path_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_expired_session_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_game_locator_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_game_not_found_dialog.dart';
@@ -308,10 +309,50 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                   ),
                 );
                 return;
+              } else if (error.message.contains('custom proton path')) {
+                // The Rust text says "no wine64 found", which is wrong for
+                // builds that ship only `wine`. Usually the folder is gone.
+                final path =
+                    RegExp('`"(.*)"`').firstMatch(error.message)?.group(1) ??
+                    '';
+                showKyberDialog(
+                  context: navigatorKey.currentContext!,
+                  builder: (context) => KyberContentDialog(
+                    title: Text('Proton build not found'.toUpperCase()),
+                    content: Text(
+                      'The Proton build selected in Settings > Mods / Proton / '
+                      'Wayland > Proton Build is missing or incomplete:\n\n'
+                      '$path\n\nPick another build or reset it to the default.',
+                      style: const TextStyle(
+                        fontFamily: FontFamily.battlefrontUI,
+                        fontSize: 17,
+                      ),
+                    ),
+                    actions: [
+                      KyberButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          showKyberDialog(
+                            context: navigatorKey.currentContext!,
+                            builder: (_) => const CustomProtonPathDialog(),
+                          );
+                        },
+                        text: 'Change Proton build',
+                      ),
+                      KyberButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        text: 'Close',
+                      ),
+                    ],
+                  ),
+                );
+                return;
               }
 
               NotificationService.showNotification(
-                message: 'Failed to start game: ${error.message}',
+                message:
+                    'Failed to start game: '
+                    '${error.message.split('Stack backtrace:').first.trim()}',
                 severity: InfoBarSeverity.error,
               );
             } else if (error is PanicException) {
@@ -340,27 +381,17 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                   );
                 },
               );
-
-              // KYBER-LINUX-PORT-MOD: this branch already closed the launch
-              // dialog, so falling through to the pop below would immediately
-              // pop the error dialog we just pushed - the user saw the launch
-              // fail with no message at all.
-              Sentry.captureException(error, stackTrace: stackTrace);
-              Logger.root.severe(
-                'Failed to start game: $error',
-                error,
-                stackTrace,
-              );
-              return;
             } else {
+              // KYBER-LINUX-PORT-MOD: every branch closes the launch dialog
+              // once. A second pop removed the whole page, leaving a blank
+              // window.
+              if (mounted) {
+                Navigator.of(context).pop();
+              }
               NotificationService.showNotification(
                 message: 'Failed to start game: $error',
                 severity: InfoBarSeverity.error,
               );
-            }
-
-            if (mounted) {
-              Navigator.of(context).pop();
             }
 
             Sentry.captureException(error, stackTrace: stackTrace);

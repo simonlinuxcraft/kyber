@@ -805,7 +805,7 @@ pub fn patch_ea_user_language() {
 
         match std::fs::write(&path, &patched) {
             Ok(_) => log::info!(
-                "EA Desktop user.ini patched: location.language→en ({})",
+                "EA Desktop user.ini patched: location.language=en ({})",
                 path.display()
             ),
             Err(e) => log::warn!(

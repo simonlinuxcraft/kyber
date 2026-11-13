@@ -363,7 +363,7 @@ class MaximaHelper {
         initializeRequest.modData.basePath =
             'Z:' + (normalised.startsWith(r'\') ? normalised : '\\$normalised');
         _logger.info(
-          'Converted ModData.basePath: $orig → '
+          'Converted ModData.basePath: $orig -> '
           '${initializeRequest.modData.basePath}',
         );
       }

@@ -99,20 +99,18 @@ when they convey binaries.
 
 ## G. Aggregation license
 
-The Kyber Linux Port aggregates code under **GPL-3.0-only**. Selbst-erstellte
-Linux-Port-Quellen (`Launcher/linux/*.sh`,
-`Launcher/lib/core/services/appimage_update_service.dart`, etc.) tragen einen
-`SPDX-License-Identifier: GPL-3.0-only`-Header. Die vendored Datei aus dem
-ACowAdonis-Tarball (`CLI/cli_payload/umu-wrapper.sh`)
-behält ihren Upstream-Header `GPL-3.0-or-later`, weil dieser die
-ursprüngliche Tarball-Lizenz korrekt wiedergibt. Da `GPL-3.0-only` eine
-zulässige Wahl unter `GPL-3.0-or-later` ist (§14 GPLv3 erlaubt einem
-Distributor, eine spezifischere spätere Version zu wählen), ist die
-Aggregation unter `GPL-3.0-only` GPL-konform.
+The Kyber Linux Port aggregates code under **GPL-3.0-only**. Files written
+for the port (`Launcher/linux/*.sh`,
+`Launcher/lib/core/services/appimage_update_service.dart` and others) carry an
+`SPDX-License-Identifier: GPL-3.0-only` header. The one file taken from the
+ACowAdonis tarball (`CLI/cli_payload/umu-wrapper.sh`) keeps its original
+`GPL-3.0-or-later` header. GPL-3.0-only is a valid choice under
+GPL-3.0-or-later (GPLv3 section 14), so the aggregate can be distributed
+under GPL-3.0-only.
 
-Upstream Kyber und upstream Maxima sind ihrerseits unter `GPL-3.0`
-lizenziert (siehe ihre `LICENSE`-Dateien); diese Aufnahme als
-`GPL-3.0-only` ist konsistent mit der `LICENSE`-Datei beider Upstreams.
+Upstream Kyber and upstream Maxima are licensed under GPL-3.0 (see their
+`LICENSE` files), which is consistent with distributing the port as
+GPL-3.0-only.
 
 ## H. Maintainership
 

@@ -74,13 +74,10 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
       if (_isWow64Layout) {
         return Tooltip(
           message:
-              'Wine 10 WoW64 single-binary layout detected (only `wine`, no '
-              'separate `wine64`). Builds like Proton-EM Latest, proton-cachyos '
-              '11+ and GE-Proton 11+ use this layout. Confirmed working in '
-              "testing - often with smoother frame times than the default. "
-              'Newer Wine + DXVK can also introduce game-side quirks not '
-              'present on the older default; revert via "Reset to default" '
-              'if the game misbehaves.',
+              'Wine 10 WoW64 layout (only `wine`, no `wine64`), as in '
+              'Proton-EM, proton-cachyos 11+ and GE-Proton 11+. It runs, but '
+              'is less tested than the default. If the game misbehaves, use '
+              '"Reset to default".',
           child: Icon(FluentIcons.info, color: Colors.warningPrimaryColor),
         );
       }
@@ -141,17 +138,11 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Advanced. The custom Proton replaces only the Wine '
-                      "binaries; BF2's save games and EA App login state stay "
-                      'shared with the default Steam-managed prefix, so '
-                      'switching back and forth does not require a new EA '
-                      'login. A newer Proton build (Proton-EM Latest, '
-                      'GE-Proton Latest, proton-cachyos) can give noticeably '
-                      'smoother frame times than the auto-managed default. '
-                      'The default remains the only tested-stable path; pick '
-                      'a custom build only if you want to trade tested '
-                      'stability for newer Wine + DXVK and accept that not '
-                      'every build will launch cleanly.',
+                      'A custom Proton build only replaces the Wine binaries. '
+                      "Save games and the EA login stay in the same prefix, "
+                      'so switching back does not need a new login. The '
+                      'default build is the tested one; newer builds may run '
+                      'better or may not start at all.',
                       style: body,
                     ),
                   ),

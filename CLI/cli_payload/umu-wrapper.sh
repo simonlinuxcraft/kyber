@@ -55,7 +55,9 @@ fi
 # MAXIMA-LINUX-PORT-MOD (6.4.3 diag): branch decisions into a file the user can
 # share. stderr alone is not enough: run_wine_command nulls stderr on success,
 # so on the Deck we never saw which branch the reg calls actually took.
-_kyber_diag_log="$HOME/.local/share/maxima/wine/wrapper-diag.log"
+# Same folder as maxima_dir() in maxima-lib.
+_kyber_maxima_dir="${XDG_DATA_HOME:-$HOME/.local/share}/maxima"
+_kyber_diag_log="$_kyber_maxima_dir/wine/wrapper-diag.log"
 _kyber_diag() {
   mkdir -p "${_kyber_diag_log%/*}" 2>/dev/null || return 0
   if [ -f "$_kyber_diag_log" ]; then
@@ -90,13 +92,13 @@ export WINEDLLOVERRIDES="msvcp140=b;${WINEDLLOVERRIDES}"
 # MAXIMA-LINUX-PORT-MOD 2026-05-24: resolve effective proton directory.
 # Resolution order matches maxima-lib's proton_dir():
 #   1. KYBER_PROTON_PATH env-var (power-user override)
-#   2. ~/.local/share/maxima/custom_proton_path sidecar file (launcher UI)
-#   3. ~/.local/share/maxima/wine/proton (maxima auto-managed default)
+#   2. <maxima dir>/custom_proton_path sidecar file (launcher UI)
+#   3. <maxima dir>/wine/proton (maxima auto-managed default)
 # Single source of truth so both case-branches below stay consistent
 # (Bug-Hunter #2).
 KYBER_RESOLVED_PROTON_DIR="${KYBER_PROTON_PATH:-}"
 if [ -z "$KYBER_RESOLVED_PROTON_DIR" ]; then
-  _kyber_sidecar="$HOME/.local/share/maxima/custom_proton_path"
+  _kyber_sidecar="$_kyber_maxima_dir/custom_proton_path"
   if [ -f "$_kyber_sidecar" ]; then
     # Bash $() strips trailing newlines but preserves internal whitespace.
     # Critical: don't tr -d '[:space:]' here - that would strip spaces INSIDE
@@ -105,7 +107,7 @@ if [ -z "$KYBER_RESOLVED_PROTON_DIR" ]; then
   fi
 fi
 if [ -z "$KYBER_RESOLVED_PROTON_DIR" ]; then
-  KYBER_RESOLVED_PROTON_DIR="$HOME/.local/share/maxima/wine/proton"
+  KYBER_RESOLVED_PROTON_DIR="$_kyber_maxima_dir/wine/proton"
 fi
 
 # Tolerant layout detection: probe known wine64 locations across builds.
@@ -166,7 +168,7 @@ echo "[umu-wrapper] PROTON_DIR=$KYBER_RESOLVED_PROTON_DIR" >&2
 # itself goes through wineserver, so we don't need BF2's PID namespace.
 # maxima-lib passes its WINEPREFIX (follows XDG_DATA_HOME); a direct call
 # falls back to the default location.
-_kyber_prefix="${WINEPREFIX:-$HOME/.local/share/maxima/wine/prefix}"
+_kyber_prefix="${WINEPREFIX:-$_kyber_maxima_dir/wine/prefix}"
 _kyber_wine_env() {
   export WINEPREFIX="$_kyber_prefix" WINEDEBUG="fixme-all" WINEFSYNC=1 WINEESYNC=1
 }
@@ -227,7 +229,7 @@ case "$1" in
       _kyber_diag "reg: deck=1 but wine_bin unresolved, falling back to umu-run"
     fi
     _reg_t0=$(date +%s)
-    "$HOME/.local/share/maxima/wine/umu/umu-run" "$@"
+    "$_kyber_maxima_dir/wine/umu/umu-run" "$@"
     _reg_rc=$?
     _kyber_diag "reg: umu-run done rc=$_reg_rc dur=$(( $(date +%s) - _reg_t0 ))s"
     exit "$_reg_rc"
@@ -283,6 +285,6 @@ case "$1" in
     # (set by maxima-lib's run_wine_command, which goes through proton_dir()
     # and therefore honors the custom override automatically).
     _kyber_diag "game: deck=$_kyber_is_deck wine_bin=${WINE_BIN:-none} exec umu-run args=$*"
-    exec "$HOME/.local/share/maxima/wine/umu/umu-run" "$@"
+    exec "$_kyber_maxima_dir/wine/umu/umu-run" "$@"
     ;;
 esac

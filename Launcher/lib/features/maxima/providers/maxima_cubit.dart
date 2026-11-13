@@ -370,8 +370,7 @@ class MaximaCubit extends Cubit<MaximaState> {
           _loggingIn = false;
 
           // MAXIMA-LINUX-PORT-MOD: drop the stale token and retry once.
-          MaximaHelper.deleteAuthFile();
-          return requestLogin();
+          if (MaximaHelper.deleteAuthFile()) return requestLogin();
           // No stale auth file to clear: surface the error instead of
           // falling through to the bare Future.error below, which would
           // leave the UI stuck on the loading spinner.

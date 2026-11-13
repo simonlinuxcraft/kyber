@@ -100,12 +100,11 @@ when they convey binaries.
 ## G. Aggregation license
 
 The Kyber Linux Port aggregates code under **GPL-3.0-only**. Selbst-erstellte
-Linux-Port-Quellen (`Launcher/linux/*.sh`, `Launcher/linux/kyber-bf2`,
-`Launcher/lib/core/services/linux_*.dart`, etc.) tragen einen
-`SPDX-License-Identifier: GPL-3.0-only`-Header. Vendored Files aus dem
-ACowAdonis-Tarball (`CLI/cli_payload/umu-wrapper.sh`,
-`CLI/cli_payload/ea-auth-webview.py`, `CLI/cli_payload/kyber-auth-helper.sh`)
-behalten ihren Upstream-Header `GPL-3.0-or-later`, weil dieser die
+Linux-Port-Quellen (`Launcher/linux/*.sh`,
+`Launcher/lib/core/services/appimage_update_service.dart`, etc.) tragen einen
+`SPDX-License-Identifier: GPL-3.0-only`-Header. Die vendored Datei aus dem
+ACowAdonis-Tarball (`CLI/cli_payload/umu-wrapper.sh`)
+behält ihren Upstream-Header `GPL-3.0-or-later`, weil dieser die
 ursprüngliche Tarball-Lizenz korrekt wiedergibt. Da `GPL-3.0-only` eine
 zulässige Wahl unter `GPL-3.0-or-later` ist (§14 GPLv3 erlaubt einem
 Distributor, eine spezifischere spätere Version zu wählen), ist die

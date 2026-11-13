@@ -31,7 +31,7 @@ class MaximaHelper {
   /// Deletes maxima's stored EA session. Upstream builds the path from
   /// %APPDATA%, which is null on Linux and macOS, so the logout and the
   /// expired-session recovery silently kept the old token.
-  static void deleteAuthFile() {
+  static bool deleteAuthFile() {
     final home = Platform.environment['HOME'] ?? '';
     final appdata = Platform.environment['APPDATA'] ?? '';
     final authPath = Platform.isLinux
@@ -40,7 +40,9 @@ class MaximaHelper {
         ? '$home/Library/Application Support/maxima/auth.toml'
         : '$appdata\\ArmchairDevelopers\\Maxima\\data\\auth.toml';
     final file = File(authPath);
-    if (file.existsSync()) file.deleteSync();
+    if (!file.existsSync()) return false;
+    file.deleteSync();
+    return true;
   }
 
   static Future<void> requestGameLaunch(

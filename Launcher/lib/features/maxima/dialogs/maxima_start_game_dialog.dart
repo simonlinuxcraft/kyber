@@ -58,6 +58,8 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
   String? lastEvent;
   int? protonDownloadedBytes;
   int? protonTotalBytes;
+  // KYBER-LINUX-PORT-MOD: launch step reported by Rust, e.g. registry 3/13.
+  String step = '';
 
   @override
   void initState() {
@@ -122,15 +124,18 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
       }
 
       // Surface the GE-Proton runtime download (first launch) as a percentage.
-      // Idle ticks (totalBytes == 0) are ignored; the stream self-closes once
-      // the subscription is cancelled below / on dispose.
+      // Idle ticks (totalBytes == 0) only carry the step; the stream
+      // self-closes once the subscription is cancelled below / on dispose.
       _protonProgress = getProtonDownloadProgress().listen((p) {
-        if (!mounted || p.totalBytes == BigInt.zero) {
+        if (!mounted || (p.totalBytes == BigInt.zero && p.step == step)) {
           return;
         }
         setState(() {
-          protonDownloadedBytes = p.downloadedBytes.toInt();
-          protonTotalBytes = p.totalBytes.toInt();
+          step = p.step;
+          if (p.totalBytes != BigInt.zero) {
+            protonDownloadedBytes = p.downloadedBytes.toInt();
+            protonTotalBytes = p.totalBytes.toInt();
+          }
         });
       }, cancelOnError: true);
 
@@ -436,6 +441,8 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                     ? 'Updating Kyber Module...'
                     : protonTotalBytes != null
                     ? 'Downloading Proton runtime...'
+                    : step.isNotEmpty
+                    ? '$step...'
                     : 'Starting Game...',
                 style: FluentTheme.of(context).typography.bodyLarge,
               ),

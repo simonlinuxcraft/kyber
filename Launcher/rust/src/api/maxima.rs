@@ -88,7 +88,10 @@ pub async fn inject_kyber(pid: u32, path: String) -> anyhow::Result<()> {
     } else {
         path
     };
-    Ok(request_library_injection(pid, &wine_path).await?)
+    launch::set_launch_step("Loading Kyber");
+    request_library_injection(pid, &wine_path).await?;
+    launch::set_launch_step("Waiting for the Kyber handshake");
+    Ok(())
 }
 
 fn convert_service_player(player: &MaximaServicePlayer) -> ServicePlayer {
@@ -276,6 +279,8 @@ pub async fn lsx_get_event_stream(pid: u32, is_startup: Option<bool>, game_sink:
 pub struct ProtonDownloadProgress {
     pub downloaded_bytes: u64,
     pub total_bytes: u64,
+    // KYBER-LINUX-PORT-MOD: current launch step, empty until the launch reports one.
+    pub step: String,
 }
 
 /// Streams GE-Proton download progress to the launcher UI. Polls the
@@ -285,15 +290,19 @@ pub struct ProtonDownloadProgress {
 /// (sink.add then errors, ending the loop). The caller (start-game dialog)
 /// cancels the subscription once start_game resolves, so this never leaks.
 pub async fn get_proton_download_progress(sink: StreamSink<ProtonDownloadProgress>) {
+    // A new dialog must not show the last launch's final step.
+    launch::set_launch_step("");
     loop {
         let msg = match maxima::util::github::download_progress() {
             Some((_, downloaded, total)) => ProtonDownloadProgress {
                 downloaded_bytes: downloaded,
                 total_bytes: total,
+                step: launch::launch_step(),
             },
             None => ProtonDownloadProgress {
                 downloaded_bytes: 0,
                 total_bytes: 0,
+                step: launch::launch_step(),
             },
         };
         if sink.add(msg).is_err() {

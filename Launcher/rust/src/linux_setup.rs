@@ -483,7 +483,7 @@ pub fn patch_wine_registry_for_bf2() {
         Err(_) => return,
     };
 
-    if is_wineserver_running() {
+    if maxima::unix::wine::wineserver_running() {
         log::info!(
             "patch_wine_registry_for_bf2: wineserver active; skipping \
              direct-file-patch (Maxima's setup_wine_registry will run via \
@@ -494,15 +494,6 @@ pub fn patch_wine_registry_for_bf2() {
 
     patch_user_reg_for_bf2(&prefix);
     patch_system_reg_for_bf2(&prefix);
-}
-
-fn is_wineserver_running() -> bool {
-    Command::new("pgrep")
-        .arg("-x")
-        .arg("wineserver")
-        .output()
-        .map(|o| o.status.success() && !o.stdout.is_empty())
-        .unwrap_or(false)
 }
 
 fn patch_user_reg_for_bf2(prefix: &str) {

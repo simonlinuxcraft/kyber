@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
@@ -31,10 +33,27 @@ class WindowHelper {
           windowButtonVisibility: false,
         );
 
+        // KYBER-LINUX-PORT-MOD: the Steam Deck screen is 1280 px wide, so
+        // keep the window within the primary display.
+        var minimum = _initialSize;
+        if (Platform.isLinux) {
+          final screen = await _primaryScreen();
+          if (screen != null) {
+            minimum = Size(
+              min(minimum.width, screen.width),
+              min(minimum.height, screen.height),
+            );
+            size = Size(
+              min(size.width, screen.width),
+              min(size.height, screen.height),
+            );
+          }
+        }
+
         await windowManager.setBackgroundColor(Colors.transparent);
         await windowManager.setSize(size);
         await windowManager.setBrightness(Brightness.dark);
-        await windowManager.setMinimumSize(_initialSize);
+        await windowManager.setMinimumSize(minimum);
         if (!rememberedWindow) {
           await windowManager.center();
         }
@@ -67,6 +86,17 @@ class WindowHelper {
         completedSetup.complete();
       }),
     );
+  }
+
+  static Future<Size?> _primaryScreen() async {
+    try {
+      final d = await screenRetriever.getPrimaryDisplay();
+      return d.visibleSize ?? d.size;
+      // No display info, keep the upstream sizes.
+      // ignore: avoid_catches_without_on_clauses
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<bool> isOnScreen(Offset offset) async {

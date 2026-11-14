@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber_launcher/core/core.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
+import 'package:kyber_launcher/core/services/linux_status.dart';
 import 'package:kyber_launcher/features/frosty/dialogs/frosty_import_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/custom_game_path_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/custom_proton_path_dialog.dart';
 import 'package:kyber_launcher/features/mods/dialogs/move_directory_dialog.dart';
 import 'package:kyber_launcher/features/settings/screens/settings.dart';
-import 'package:kyber_launcher/gen/rust/api/maxima.dart';
 import 'package:kyber_launcher/main.dart';
 import 'package:kyber_launcher/shared/ui/ui.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
@@ -34,22 +34,6 @@ class _ModSupportState extends State<ModSupport> {
         ),
       ),
     );
-  }
-
-  // KYBER-LINUX-PORT-MOD: what the next launch will actually run. The release
-  // tag is read from the build, not from its directory name, because those can
-  // disagree: a compatibilitytools.d entry named GE-Proton10-34 turned out to be
-  // a symlink into Lutris' rolling "Proton-GE Latest" and held 11-3.
-  String _protonLabel() {
-    final active = getActiveProton();
-    final origin = switch (active.origin) {
-      'custom' => 'custom path',
-      'detected' => 'found on this system',
-      'managed' => 'managed by Kyber',
-      'download' => 'downloads on next launch',
-      _ => active.origin,
-    };
-    return '${active.tag} ($origin)';
   }
 
   @override
@@ -89,7 +73,7 @@ class _ModSupportState extends State<ModSupport> {
               if (Platform.isLinux)
                 KyberTableItem.button(
                   title: 'Proton Build',
-                  text: _protonLabel(),
+                  text: protonLabel(),
                   onClick: () async {
                     await showKyberDialog(
                       builder: (_) => const CustomProtonPathDialog(),
@@ -107,7 +91,8 @@ class _ModSupportState extends State<ModSupport> {
               // has no display to open and would stop the launcher starting,
               // so the toggle is not offered there.
               if (Platform.isLinux &&
-                  (Platform.environment['WAYLAND_DISPLAY']?.isNotEmpty ?? false))
+                  (Platform.environment['WAYLAND_DISPLAY']?.isNotEmpty ??
+                      false))
                 KyberTableItem.switchButton(
                   title: 'Native Wayland (restart to apply)',
                   value: Preferences.general.nativeWayland,
@@ -126,7 +111,8 @@ class _ModSupportState extends State<ModSupport> {
               // that suits every machine and the user decides by feel.
               if (Platform.isLinux)
                 KyberTableItem.switchButton(
-                  title: 'Alternative renderer for weak graphics '
+                  title:
+                      'Alternative renderer for weak graphics '
                       '(restart to apply)',
                   value: Preferences.general.skiaRenderer,
                   onChange: (bool value) {

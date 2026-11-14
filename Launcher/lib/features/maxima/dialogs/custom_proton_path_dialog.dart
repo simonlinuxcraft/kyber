@@ -4,6 +4,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:kyber_launcher/core/config/colors.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
+import 'package:kyber_launcher/core/services/linux_status.dart';
 import 'package:kyber_launcher/gen/rust/api/maxima.dart';
 import 'package:kyber_launcher/shared/ui/buttons/button.dart';
 import 'package:kyber_launcher/shared/ui/dialog/kyber_dialog.dart';
@@ -82,7 +83,10 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
         );
       }
       if (validation!.inHome) {
-        return const Icon(FluentIcons.check_mark, color: Colors.successPrimaryColor);
+        return const Icon(
+          FluentIcons.check_mark,
+          color: Colors.successPrimaryColor,
+        );
       }
       return Tooltip(
         message:
@@ -100,8 +104,9 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
   @override
   Widget build(BuildContext context) {
     final isLinux = Platform.isLinux;
-    final body =
-        FluentTheme.of(context).typography.body?.copyWith(color: kWhiteColor);
+    final body = FluentTheme.of(
+      context,
+    ).typography.body?.copyWith(color: kWhiteColor);
     return KyberContentDialog(
       constraints: const BoxConstraints(maxWidth: 760, maxHeight: 780),
       title: Text('Custom Proton Path (Experimental)'.toUpperCase()),
@@ -152,10 +157,10 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
             const SizedBox(height: 16),
             Text(
               'Override the Proton build used to run Battlefront II. Leave '
-              'empty to use the auto-managed GE-Proton that Maxima downloads. '
-              'The path must point to a Proton directory containing wine64 '
-              '(GE-Proton: files/bin/wine64, proton-cachyos: dist/bin/wine64). '
-              'Takes effect at the next game launch.',
+              'empty to use the GE-Proton that Kyber downloads. The folder '
+              'needs wine64 or wine under files/bin (GE-Proton) or dist/bin '
+              '(proton-cachyos). Takes effect at the next game launch.\n\n'
+              'In use now: ${protonLabel()}',
               style: body,
               textAlign: TextAlign.center,
             ),
@@ -195,10 +200,9 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
                     ? 'No Proton installations found in the standard Steam '
                           'compatibility directories.'
                     : 'Found ${scanResults!.length} Proton installation(s):',
-                style: FluentTheme.of(context)
-                    .typography
-                    .body
-                    ?.copyWith(color: kWhiteColor),
+                style: FluentTheme.of(
+                  context,
+                ).typography.body?.copyWith(color: kWhiteColor),
               ),
               const SizedBox(height: 8),
               SizedBox(
@@ -371,10 +375,9 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
             'fight over the prefix).\n\n'
             'Kill the stale wineserver and retry? BF2 will close if it is '
             'still open.',
-            style: FluentTheme.of(dlgCtx)
-                .typography
-                .body
-                ?.copyWith(color: kWhiteColor),
+            style: FluentTheme.of(
+              dlgCtx,
+            ).typography.body?.copyWith(color: kWhiteColor),
           ),
           actions: [
             KyberButton(
@@ -434,10 +437,9 @@ class _CustomProtonPathDialogState extends State<CustomProtonPathDialog> {
           'first match while shaders recompile.\n\n'
           'Run this after switching Proton versions if you see yellow '
           'streaks or flickering shadows. BF2 must not be running.',
-          style: FluentTheme.of(dialogContext)
-              .typography
-              .body
-              ?.copyWith(color: kWhiteColor),
+          style: FluentTheme.of(
+            dialogContext,
+          ).typography.body?.copyWith(color: kWhiteColor),
         ),
         actions: [
           KyberButton(

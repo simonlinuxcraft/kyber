@@ -1,11 +1,17 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:kyber_launcher/core/config/colors.dart';
 import 'package:kyber_launcher/core/services/app_settings.dart';
+import 'package:kyber_launcher/core/services/linux_status.dart';
+import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/core/services/rich_presence.dart';
 import 'package:kyber_launcher/core/utils/custom_logger.dart';
 import 'package:kyber_launcher/features/settings/dialogs/debug_logging_warning_dialog.dart';
+import 'package:kyber_launcher/features/settings/screens/settings.dart';
 import 'package:kyber_launcher/gen/fonts.gen.dart';
 import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/main.dart';
@@ -165,8 +171,43 @@ class LogsAndActivity extends StatelessWidget {
               ],
             ),
           ),
+          if (Platform.isLinux) ..._linuxSystem(context),
         ],
       ),
     );
+  }
+
+  // KYBER-LINUX-PORT-MOD: a screenshot of this answers most support questions.
+  List<Widget> _linuxSystem(BuildContext context) {
+    final status = linuxStatus();
+    final style = FluentTheme.of(context).typography.body;
+    return [
+      const SizedBox(height: 10),
+      const SettingsHeader(title: 'SYSTEM'),
+      KyberTable(
+        items: [
+          for (final MapEntry(:key, :value) in status.entries)
+            KyberTableItem.custom(
+              title: key,
+              builder: (_) => Text(value, style: style),
+            ),
+          KyberTableItem.button(
+            title: 'For a bug report',
+            text: 'Copy',
+            onClick: () async {
+              await Clipboard.setData(
+                ClipboardData(
+                  text: [
+                    for (final MapEntry(:key, :value) in status.entries)
+                      '$key: $value',
+                  ].join('\n'),
+                ),
+              );
+              NotificationService.success(message: 'System info copied');
+            },
+          ),
+        ],
+      ),
+    ];
   }
 }

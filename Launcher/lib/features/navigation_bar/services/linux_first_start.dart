@@ -4,6 +4,7 @@
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:kyber_launcher/core/services/appimage_update_service.dart';
 import 'package:kyber_launcher/core/services/linux_status.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
@@ -139,14 +140,22 @@ Future<void> _archPackagesNote(BuildContext context, String stateDir) async {
   final marker = File('$stateDir/.cachyos-hint-shown');
   if (marker.existsSync() && marker.readAsStringSync().trim() == set) return;
   if (!context.mounted) return;
-  await _ask(
+  // The UI font draws the two dashes of --needed as one, so offer a copy.
+  final command = 'sudo pacman -S --needed $set';
+  final copy = await _ask(
     context,
     'Optional packages missing',
     'Kyber works without them, but Battlefront II may show a static logo '
         'instead of the Origin login splash, and vulkan-tools is only needed '
-        'for vulkaninfo in bug reports. To install them, run:\n\n'
-        'sudo pacman -S --needed $set',
+        'for vulkaninfo in bug reports. To install them, run in a terminal:'
+        '\n\n$command',
+    yes: 'Copy command',
+    no: 'Close',
   );
+  if (copy ?? false) {
+    await Clipboard.setData(ClipboardData(text: command));
+    NotificationService.success(message: 'Command copied');
+  }
   marker
     ..createSync(recursive: true)
     ..writeAsStringSync(set);

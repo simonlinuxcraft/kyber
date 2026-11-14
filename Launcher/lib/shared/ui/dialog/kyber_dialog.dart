@@ -153,100 +153,99 @@ class _KyberContentDialogState extends State<KyberContentDialog>
                       alignment: Alignment.center,
                     ),
                   ),
-                  Positioned.fill(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Flexible(
-                          child: Padding(
-                            padding:
-                                widget.contentPadding ??
-                                const EdgeInsets.all(
-                                  20,
-                                ).copyWith(top: 50, bottom: 0),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (widget.title != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 5),
+                  // KYBER-LINUX-PORT-MOD: not positioned, so the dialog takes
+                  // the height of its content instead of the maximum.
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Flexible(
+                        child: Padding(
+                          padding:
+                              widget.contentPadding ??
+                              const EdgeInsets.all(
+                                20,
+                              ).copyWith(top: 50, bottom: 0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (widget.title != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 5),
+                                  child: DefaultTextStyle.merge(
+                                    style: style.titleStyle,
                                     child: DefaultTextStyle.merge(
-                                      style: style.titleStyle,
-                                      child: DefaultTextStyle.merge(
-                                        style: const TextStyle(
-                                          fontFamily: FontFamily.aurebesh,
-                                          color: decoColor,
-                                          height: 1,
-                                          fontSize: 12,
-                                        ),
-                                        child: Center(child: widget.title),
+                                      style: const TextStyle(
+                                        fontFamily: FontFamily.aurebesh,
+                                        color: decoColor,
+                                        height: 1,
+                                        fontSize: 12,
                                       ),
+                                      child: Center(child: widget.title),
                                     ),
                                   ),
-                                if (widget.title != null)
-                                  Padding(
-                                    padding: style.titlePadding ?? .zero,
+                                ),
+                              if (widget.title != null)
+                                Padding(
+                                  padding: style.titlePadding ?? .zero,
+                                  child: DefaultTextStyle.merge(
+                                    style: style.titleStyle,
                                     child: DefaultTextStyle.merge(
-                                      style: style.titleStyle,
-                                      child: DefaultTextStyle.merge(
-                                        style: const TextStyle(
-                                          height: 1,
-                                        ),
-                                        child: Center(child: widget.title),
+                                      style: const TextStyle(
+                                        height: 1,
                                       ),
+                                      child: Center(child: widget.title),
                                     ),
                                   ),
-                                if (widget.content != null)
-                                  Expanded(
-                                    child: Padding(
-                                      padding: style.bodyPadding ?? .zero,
-                                      child: widget.content,
-                                    ),
+                                ),
+                              if (widget.content != null)
+                                Flexible(
+                                  child: Padding(
+                                    padding: style.bodyPadding ?? .zero,
+                                    child: widget.content,
                                   ),
-                              ],
-                            ),
+                                ),
+                            ],
                           ),
                         ),
-                        if (widget.actions != null)
-                          Container(
-                            padding: const EdgeInsets.all(
-                              20,
-                            ).copyWith(bottom: 60, top: 10),
-                            child: ButtonTheme.merge(
-                              data:
-                                  style.actionThemeData ??
-                                  const ButtonThemeData(),
-                              child: () {
-                                if (widget.actions!.length == 1) {
-                                  return Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Align(
-                                        alignment:
-                                            AlignmentDirectional.centerEnd,
-                                        child: widget.actions!.first,
-                                      ),
-                                    ],
-                                  );
-                                }
+                      ),
+                      if (widget.actions != null)
+                        Container(
+                          padding: const EdgeInsets.all(
+                            20,
+                          ).copyWith(bottom: 60, top: 10),
+                          child: ButtonTheme.merge(
+                            data:
+                                style.actionThemeData ??
+                                const ButtonThemeData(),
+                            child: () {
+                              if (widget.actions!.length == 1) {
                                 return Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
-                                  children: widget.actions!.map((e) {
-                                    return Padding(
-                                      padding: const EdgeInsetsDirectional.only(
-                                        end: 20,
-                                      ),
-                                      child: e,
-                                    );
-                                  }).toList(),
+                                  children: [
+                                    Align(
+                                      alignment: AlignmentDirectional.centerEnd,
+                                      child: widget.actions!.first,
+                                    ),
+                                  ],
                                 );
-                              }(),
-                            ),
+                              }
+                              return Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: widget.actions!.map((e) {
+                                  return Padding(
+                                    padding: const EdgeInsetsDirectional.only(
+                                      end: 20,
+                                    ),
+                                    child: e,
+                                  );
+                                }).toList(),
+                              );
+                            }(),
                           ),
-                      ],
-                    ),
+                        ),
+                    ],
                   ),
                   Positioned.fill(
                     child: IgnorePointer(

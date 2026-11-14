@@ -19,6 +19,7 @@ import 'package:kyber_launcher/features/download_manager/services/download_link_
 import 'package:kyber_launcher/features/download_manager/services/download_post_processor.dart';
 import 'package:kyber_launcher/features/download_manager/services/incremental_updater.dart';
 import 'package:kyber_launcher/features/download_manager/services/platform/download_platform_integration.dart';
+import 'package:kyber_launcher/features/download_manager/services/platform/linux_launcher_entry_integration.dart';
 import 'package:kyber_launcher/features/download_manager/services/platform/windows_taskbar_integration.dart';
 import 'package:kyber_launcher/features/kyber/providers/kyber_api_status_cubit.dart';
 import 'package:kyber_launcher/features/mods/helper/mod_helper.dart';
@@ -128,6 +129,7 @@ class DownloadOrchestrator with ChangeNotifier {
         platformIntegration ??
         switch (Platform.operatingSystem) {
           'windows' => const WindowsTaskbarIntegration(),
+          'linux' => const LinuxLauncherEntryIntegration(),
           _ => const NoOpPlatformIntegration(),
         };
 

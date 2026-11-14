@@ -23,6 +23,7 @@ dependencies:
     git:
       url: https://github.com/alexmercerind/dart_discord_rpc.git
       ref: harmonoid
+  dbus: ^0.7.15
   dio: ^5.4.0
   dio_cache_interceptor: ^4.0.5
   http_cache_hive_store: ^5.0.1

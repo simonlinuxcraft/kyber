@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/scheduler.dart';
@@ -11,7 +12,7 @@ import 'package:kyber_launcher/core/routing/app_router.dart';
 import 'package:kyber_launcher/core/services/module_version_service.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/kyber/dialogs/kyber_anti_virus_exclusion.dart';
-import 'package:kyber_launcher/features/maxima/dialogs/custom_proton_path_dialog.dart';
+import 'package:kyber_launcher/features/maxima/dialogs/launch_error_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_expired_session_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_game_locator_dialog.dart';
 import 'package:kyber_launcher/features/maxima/dialogs/maxima_game_not_found_dialog.dart';
@@ -259,114 +260,23 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
                   ),
                 );
                 return;
-              } else if (error.message.contains('No Steam Proton prefix')) {
-                // Missing BF2 Proton prefix (BF2 not run via Steam yet, or a
-                // custom game path pointing at a non-Steam copy). Show the
-                // actionable message from start_game in a dialog rather than a
-                // toast that scrolls away.
-                showKyberDialog(
-                  context: navigatorKey.currentContext!,
-                  builder: (context) => KyberContentDialog(
-                    title: Text('No Proton prefix found'.toUpperCase()),
-                    content: Text(
-                      error.message,
-                      style: const TextStyle(
-                        fontFamily: FontFamily.battlefrontUI,
-                        fontSize: 17,
-                      ),
-                    ),
-                    actions: [
-                      KyberButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        text: 'Close',
-                      ),
-                    ],
-                  ),
-                );
-                return;
-              } else if (error.message.contains(
-                'without connecting to the launcher',
-              )) {
-                // KYBER-LINUX-PORT-MOD 2026-08-13: the launch-wait loop gave
-                // up because the game exited before reaching the LSX
-                // handshake. The message is a multi-sentence instruction, so a
-                // toast is useless for it: six lines, ellipsised, gone after
-                // five seconds. Same treatment as the missing-prefix case
-                // above, with wider constraints because the text is longer.
-                showKyberDialog(
-                  context: navigatorKey.currentContext!,
-                  builder: (context) => KyberContentDialog(
-                    constraints: const BoxConstraints(
-                      maxWidth: 560,
-                      maxHeight: 640,
-                    ),
-                    title: Text('Game did not start'.toUpperCase()),
-                    content: Text(
-                      // anyhow appends "Stack backtrace:" and the frames to
-                      // the message. That is noise for a player and pushes the
-                      // actual instruction out of view, so cut it. The full
-                      // trace stays in the log.
-                      error.message.split('Stack backtrace:').first.trim(),
-                      style: const TextStyle(
-                        fontFamily: FontFamily.battlefrontUI,
-                        fontSize: 17,
-                      ),
-                    ),
-                    actions: [
-                      KyberButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        text: 'Close',
-                      ),
-                    ],
-                  ),
-                );
-                return;
-              } else if (error.message.contains('custom proton path')) {
-                // The Rust text says "no wine64 found", which is wrong for
-                // builds that ship only `wine`. Usually the folder is gone.
-                final path =
-                    RegExp('`"(.*)"`').firstMatch(error.message)?.group(1) ??
-                    '';
-                showKyberDialog(
-                  context: navigatorKey.currentContext!,
-                  builder: (context) => KyberContentDialog(
-                    title: Text('Proton build not found'.toUpperCase()),
-                    content: Text(
-                      'The Proton build selected in Settings > Mods / Proton / '
-                      'Wayland > Proton Build is missing or incomplete:\n\n'
-                      '$path\n\nPick another build or reset it to the default.',
-                      style: const TextStyle(
-                        fontFamily: FontFamily.battlefrontUI,
-                        fontSize: 17,
-                      ),
-                    ),
-                    actions: [
-                      KyberButton(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          showKyberDialog(
-                            context: navigatorKey.currentContext!,
-                            builder: (_) => const CustomProtonPathDialog(),
-                          );
-                        },
-                        text: 'Change Proton build',
-                      ),
-                      KyberButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        text: 'Close',
-                      ),
-                    ],
-                  ),
-                );
-                return;
               }
 
-              NotificationService.showNotification(
-                message:
-                    'Failed to start game: '
-                    '${error.message.split('Stack backtrace:').first.trim()}',
-                severity: InfoBarSeverity.error,
-              );
+              // KYBER-LINUX-PORT-MOD: on Linux these are mostly Proton or
+              // prefix problems with instructions too long for a toast.
+              if (Platform.isLinux) {
+                showKyberDialog(
+                  context: navigatorKey.currentContext!,
+                  builder: (_) => LaunchErrorDialog(error.message),
+                );
+              } else {
+                NotificationService.showNotification(
+                  message:
+                      'Failed to start game: '
+                      '${error.message.split('Stack backtrace:').first.trim()}',
+                  severity: InfoBarSeverity.error,
+                );
+              }
             } else if (error is PanicException) {
               if (mounted) {
                 Navigator.of(context).pop();
@@ -483,8 +393,7 @@ class _MaximaStartGameDialogState extends State<MaximaStartGameDialog> {
           if (protonTotalBytes != null && protonTotalBytes! > 0) ...[
             const SizedBox(height: 10),
             ProgressBar(
-              value:
-                  ((protonDownloadedBytes ?? 0) / protonTotalBytes!) * 100,
+              value: ((protonDownloadedBytes ?? 0) / protonTotalBytes!) * 100,
             ),
             const SizedBox(height: 4),
             Text(

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' as mt;
@@ -8,6 +10,7 @@ import 'package:kyber_launcher/core/config/colors.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
 import 'package:kyber_launcher/features/maxima/providers/maxima_cubit.dart';
 import 'package:kyber_launcher/features/maxima/screens/maxima_login.dart';
+import 'package:kyber_launcher/features/navigation_bar/services/linux_first_start.dart';
 import 'package:kyber_launcher/features/patreon/services/patreon_service.dart';
 import 'package:kyber_launcher/features/setup/widgets/mod_selector.dart';
 import 'package:kyber_launcher/features/setup/widgets/nexus_login_screen.dart';
@@ -538,6 +541,13 @@ class _SetupContainerState extends State<SetupContainer> {
                                         try {
                                           setState(() => loading = true);
                                           if (widget.page == 0) {
+                                            // KYBER-LINUX-PORT-MOD: the menu
+                                            // entry brings the qrc:// handler
+                                            // this first login returns through.
+                                            if (Platform.isLinux) {
+                                              await linuxFirstStart(context);
+                                            }
+                                            if (!context.mounted) return;
                                             await context
                                                 .read<MaximaCubit>()
                                                 .requestLogin();
@@ -545,7 +555,8 @@ class _SetupContainerState extends State<SetupContainer> {
                                             widget.onNexusLogin();
                                           }
                                         } finally {
-                                          setState(() => loading = false);
+                                          if (mounted)
+                                            setState(() => loading = false);
                                         }
                                       },
                                     ),

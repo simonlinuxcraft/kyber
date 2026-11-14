@@ -22,10 +22,12 @@ import 'package:kyber_launcher/features/mods/dialogs/move_directory_dialog.dart'
 import 'package:kyber_launcher/features/mods/services/mod_service.dart';
 import 'package:kyber_launcher/features/navigation_bar/dialogs/disable_comp_mode_dialog.dart';
 import 'package:kyber_launcher/features/navigation_bar/helper/protocol_helper.dart';
+import 'package:kyber_launcher/features/navigation_bar/services/linux_first_start.dart';
 import 'package:kyber_launcher/features/nexusmods/widgets/graphql_provider.dart';
 import 'package:kyber_launcher/features/server_moderation/providers/moderation_servers_cubit.dart';
 import 'package:kyber_launcher/features/session/providers/session_cubit.dart';
 import 'package:kyber_launcher/features/settings/dialogs/appimage_update_dialog.dart';
+import 'package:kyber_launcher/features/settings/dialogs/whats_new_dialog.dart';
 import 'package:kyber_launcher/features/settings/dialogs/update_dialog.dart';
 import 'package:kyber_launcher/features/setup/dialogs/open_beta_dialog.dart';
 import 'package:kyber_launcher/features/setup/dialogs/rules_dialog.dart';
@@ -40,6 +42,9 @@ class AppInitializationService {
   static final _logger = Logger('app_initialization_service');
 
   static Future<void> initialize(BuildContext context) async {
+    if (!context.mounted) return;
+    // KYBER-LINUX-PORT-MOD: menu entry question and one-time notes.
+    if (Platform.isLinux) await linuxFirstStart(context);
     if (!context.mounted) return;
 
     context
@@ -115,6 +120,9 @@ class AppInitializationService {
     await showRulesDialog(context);
     await _showPlatformWarnings();
     await _validateModDirectory(context);
+    // KYBER-LINUX-PORT-MOD: before _handleVersionUpdate, which overwrites the
+    // stored version this compares against.
+    if (Platform.isLinux && context.mounted) await showWhatsNew(context);
     await _handleVersionUpdate();
 
     TaskbarIconHelper.setWindowIcon();

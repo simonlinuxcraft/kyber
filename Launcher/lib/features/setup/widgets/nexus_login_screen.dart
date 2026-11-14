@@ -3,70 +3,31 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:kyber_launcher/core/services/notification_service.dart';
+import 'package:kyber_launcher/core/utils/host_environment.dart';
 import 'package:kyber_launcher/features/nexusmods/services/nexusmods_service.dart';
 import 'package:kyber_launcher/injection_container.dart';
 import 'package:kyber_launcher/main.dart';
 import 'package:logging/logging.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-// Linux: url_launcher spawns `xdg-open` with the AppImage's polluted
-// environment (LD_LIBRARY_PATH, GTK_*, GI_TYPELIB_PATH, and an XDG_DATA_DIRS
-// rewritten to point into the bundle). On KDE / SteamOS that makes xdg-open
-// unable to resolve the real default browser and fall back to Discover's
-// appstream handler (the "install Firefox" page). The EA login opens the
-// browser through a sanitized xdg-open (maxima `open_login_url`); mirror that
-// here so the NexusMods sign-in opens the actual browser, not the software
-// store. Falls back to url_launcher if the sanitized spawn fails.
+// Linux: url_launcher would start xdg-open with the AppImage environment,
+// which opens the software store instead of the browser on KDE and SteamOS.
+// Falls back to url_launcher if the clean start fails.
 Future<bool> _openUrlExternalSanitized(String url) async {
   if (!Platform.isLinux) {
     return launchUrlString(url, mode: LaunchMode.externalApplication);
   }
   try {
-    final env = Map<String, String>.from(Platform.environment);
-    final appdir = env['APPDIR'] ?? '';
-    final orig = env['KYBER_ORIG_XDG_DATA_DIRS'];
-    final base = (orig != null && orig.isNotEmpty)
-        ? orig
-        : (env['XDG_DATA_DIRS'] ?? '');
-    final dirs = <String>[];
-    for (final d in base.split(':')) {
-      if (d.isEmpty) continue;
-      if (appdir.isNotEmpty && d.startsWith(appdir)) continue; // drop bundle share
-      dirs.add(d);
-    }
-    final home = env['HOME'];
-    if (home != null && home.isNotEmpty) {
-      dirs.add('$home/.local/share/flatpak/exports/share');
-    }
-    dirs.addAll(const [
-      '/var/lib/flatpak/exports/share',
-      '/usr/local/share',
-      '/usr/share',
-    ]);
-    final seen = <String>{};
-    env['XDG_DATA_DIRS'] = dirs.where(seen.add).join(':');
-    for (final k in const [
-      'GTK_PATH',
-      'GDK_PIXBUF_MODULE_FILE',
-      'GTK_IM_MODULE_FILE',
-      'GI_TYPELIB_PATH',
-      'GSETTINGS_SCHEMA_DIR',
-      'GTK_EXE_PREFIX',
-      'GTK_DATA_PREFIX',
-      'GTK_THEME',
-      'GDK_BACKEND',
-      'LD_LIBRARY_PATH',
-    ]) {
-      env.remove(k);
-    }
     final result = await Process.run(
       'xdg-open',
       [url],
-      environment: env,
+      environment: hostEnvironment(),
       includeParentEnvironment: false,
     );
     if (result.exitCode == 0) return true;
-    Logger.root.warning('sanitized xdg-open exited ${result.exitCode} for $url');
+    Logger.root.warning(
+      'sanitized xdg-open exited ${result.exitCode} for $url',
+    );
   } catch (e) {
     Logger.root.warning('sanitized xdg-open failed for $url: $e');
   }
